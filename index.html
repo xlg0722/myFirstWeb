@@ -127,6 +127,24 @@
         </div>
     </section>
 
+    <!-- 邮箱验证码 -->
+    <section class="page" id="page-verify">
+        <div class="page-inner">
+            <a class="back-link" href="#register" data-page="register">← 返回注册</a>
+            <h2 class="panel-title">输入验证码</h2>
+            <p class="auth-hint">验证码已发送到 <strong id="verify-email">你的邮箱</strong>，请连同垃圾邮件箱一起查看。</p>
+            <form class="auth-form" id="verify-form" novalidate>
+                <label class="field">
+                    <span class="field__label">6 位验证码</span>
+                    <input class="field__input field__input--otp" type="text" name="token" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" required>
+                </label>
+                <button class="menu-button auth-submit" type="submit">验证并登录</button>
+                <p class="auth-msg" role="alert"></p>
+                <p class="auth-switch">没收到？<button class="link-button" id="resend-code" type="button">重新发送</button></p>
+            </form>
+        </div>
+    </section>
+
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <script src="supabase-config.js"></script>
     <script src="script.js"></script>

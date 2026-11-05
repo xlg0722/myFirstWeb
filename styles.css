@@ -450,6 +450,46 @@ img {
     text-decoration: underline;
 }
 
+.auth-hint {
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: rgba(200, 214, 240, 0.7);
+}
+
+.auth-hint strong {
+    color: #eaf0ff;
+    font-weight: 500;
+}
+
+.field__input--otp {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 20px;
+    letter-spacing: 0.32em;
+    text-align: center;
+    text-indent: 0.32em;
+}
+
+.link-button {
+    padding: 0;
+    font: inherit;
+    font-size: 13px;
+    color: #cfe0ff;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+
+.link-button:hover {
+    text-decoration: underline;
+}
+
+.link-button:disabled {
+    color: rgba(195, 210, 238, 0.4);
+    cursor: default;
+    text-decoration: none;
+}
+
 /* ===== 导航账号区 ===== */
 .nav-account {
     display: flex;
