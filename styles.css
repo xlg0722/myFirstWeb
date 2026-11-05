@@ -417,12 +417,53 @@ img {
     box-shadow: 0 0 0 3px rgba(110, 160, 235, 0.18);
 }
 
+.field__input::placeholder {
+    color: rgba(170, 190, 225, 0.45);
+}
+
 .auth-submit {
     justify-content: center;
     min-height: 0;
     padding: 13px 20px;
     font-size: 15px;
     letter-spacing: 0.12em;
+}
+
+/* 验证码输入 + 发送按钮 */
+.code-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+
+.code-row .field__input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.code-send {
+    flex: 0 0 auto;
+    padding: 0 14px;
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #eaf0ff;
+    background: rgba(20, 32, 56, 0.85);
+    border: 1px solid rgba(158, 184, 232, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.code-send:hover:not(:disabled) {
+    border-color: rgba(180, 205, 255, 0.7);
+    background: rgba(28, 44, 76, 0.9);
+}
+
+.code-send:disabled {
+    color: rgba(195, 210, 238, 0.45);
+    border-color: rgba(158, 184, 232, 0.18);
+    cursor: default;
 }
 
 .auth-msg {
@@ -450,44 +491,12 @@ img {
     text-decoration: underline;
 }
 
-.auth-hint {
-    margin: 0 0 16px;
-    font-size: 13px;
-    line-height: 1.6;
-    color: rgba(200, 214, 240, 0.7);
-}
-
-.auth-hint strong {
-    color: #eaf0ff;
-    font-weight: 500;
-}
-
 .field__input--otp {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 20px;
     letter-spacing: 0.32em;
     text-align: center;
     text-indent: 0.32em;
-}
-
-.link-button {
-    padding: 0;
-    font: inherit;
-    font-size: 13px;
-    color: #cfe0ff;
-    background: none;
-    border: 0;
-    cursor: pointer;
-}
-
-.link-button:hover {
-    text-decoration: underline;
-}
-
-.link-button:disabled {
-    color: rgba(195, 210, 238, 0.4);
-    cursor: default;
-    text-decoration: none;
 }
 
 /* ===== 导航账号区 ===== */
