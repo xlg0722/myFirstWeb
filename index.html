@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小龙果</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#home" class="nav-brand" data-page="home">小龙果</a>
+            <div class="nav-links">
+                <a href="#home" class="nav-link nav-link--active" data-page="home">首页</a>
+                <a href="#download" class="nav-link" data-page="download">下载</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 星空背景 -->
+    <div class="starfield">
+        <canvas id="stars-canvas"></canvas>
+    </div>
+
+    <!-- 首页 -->
+    <section class="page page--active" id="page-home">
+        <div class="page-inner">
+            <div class="menu-list">
+                <a class="menu-button" href="#download" data-page="download">
+                    <span class="menu-button__icon">
+                        <img src="assets/icon.png" alt="" width="16" height="16">
+                    </span>
+                    <span class="menu-button__text">
+                        <span class="menu-button__eyebrow">最新游戏</span>
+                        <span class="menu-button__title">你的世界</span>
+                    </span>
+                    <span class="menu-button__version">测试版 0.1</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 下载页 -->
+    <section class="page" id="page-download">
+        <div class="page-inner">
+            <div class="menu-list">
+                <a class="menu-button" href="#versions" data-page="versions">
+                    <span class="menu-button__icon">
+                        <img src="assets/icon.png" alt="" width="16" height="16">
+                    </span>
+                    <span class="menu-button__text">
+                        <span class="menu-button__eyebrow">下载</span>
+                        <span class="menu-button__title">你的世界下载</span>
+                    </span>
+                    <span class="menu-button__version">测试版 0.1</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 版本列表 -->
+    <section class="page" id="page-versions">
+        <div class="page-inner">
+            <a class="back-link" href="#download" data-page="download">← 返回下载</a>
+            <div class="menu-list">
+                <a class="menu-button menu-button--version" href="downloads/yourworld-v0.1-win64.zip" download>
+                    <span class="menu-button__text">
+                        <span class="menu-button__title menu-button__title--sm">yourworld-v0.1-win64</span>
+                    </span>
+                    <span class="menu-button__version">Windows 64 位</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>
