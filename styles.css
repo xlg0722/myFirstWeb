@@ -368,3 +368,130 @@ img {
         transform: none;
     }
 }
+
+/* ===== 登录 / 注册 ===== */
+.panel-title {
+    margin: 0 0 18px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: #eef3ff;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.field__label {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: rgba(186, 204, 235, 0.6);
+}
+
+.field__input {
+    width: 100%;
+    padding: 11px 14px;
+    font: inherit;
+    font-size: 15px;
+    color: #eaf0ff;
+    background: rgba(14, 22, 40, 0.55);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 6px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.field__input:focus {
+    outline: none;
+    border-color: rgba(180, 205, 255, 0.7);
+    box-shadow: 0 0 0 3px rgba(110, 160, 235, 0.18);
+}
+
+.auth-submit {
+    justify-content: center;
+    min-height: 0;
+    padding: 13px 20px;
+    font-size: 15px;
+    letter-spacing: 0.12em;
+}
+
+.auth-msg {
+    min-height: 18px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #ff9aa2;
+}
+
+.auth-msg[data-state="success"] {
+    color: #9fe0b8;
+}
+
+.auth-switch {
+    font-size: 13px;
+    color: rgba(195, 210, 238, 0.6);
+}
+
+.auth-switch a {
+    color: #cfe0ff;
+    text-decoration: none;
+}
+
+.auth-switch a:hover {
+    text-decoration: underline;
+}
+
+/* ===== 导航账号区 ===== */
+.nav-account {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 6px;
+    padding-left: 10px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nav-account__name {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: rgba(214, 228, 250, 0.8);
+}
+
+.nav-account__logout {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+/* 版本按钮从 <a> 换成 <button>，需要重置原生样式 */
+button.menu-button {
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+button.menu-button:disabled {
+    opacity: 0.55;
+    cursor: progress;
+}
+
+/* ===== 下载提示 ===== */
+.download-msg {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #ff9aa2;
+}
