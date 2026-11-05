@@ -286,11 +286,20 @@
     const pages = document.querySelectorAll('.page');
     const links = document.querySelectorAll('[data-page]');
 
-    const PAGE_NAMES = ['home', 'download', 'versions'];
+    const PAGE_NAMES = ['home', 'download', 'versions', 'login', 'register'];
 
     function showPage(name) {
         // 版本列表属于下载流程，导航高亮仍停在「下载」
         const navName = name === 'versions' ? 'download' : name;
+
+        // 地址栏与当前页面保持一致，刷新后还能停在这一页
+        if (location.hash.slice(1) !== name) {
+            if (history.replaceState) {
+                history.replaceState(null, '', '#' + name);
+            } else {
+                location.hash = name;
+            }
+        }
 
         pages.forEach((p) => {
             p.classList.toggle('page--active', p.id === 'page-' + name);
@@ -306,11 +315,6 @@
             const name = link.dataset.page;
             if (!name) return;
             e.preventDefault();
-            if (history.replaceState) {
-                history.replaceState(null, '', '#' + name);
-            } else {
-                location.hash = name;
-            }
             showPage(name);
         });
     });
@@ -318,4 +322,13 @@
     // 初始页面：按地址栏 hash 决定，默认首页
     const initial = location.hash.slice(1);
     showPage(PAGE_NAMES.includes(initial) ? initial : 'home');
+
+    // 供 auth.js 等模块切换页面
+    window.SilguSite = { showPage };
+
+    // 动态生成或直接修改 hash 的链接（例如登录/退出）也能切页
+    window.addEventListener('hashchange', () => {
+        const name = location.hash.slice(1);
+        if (PAGE_NAMES.includes(name)) showPage(name);
+    });
 })();
