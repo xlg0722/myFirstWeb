@@ -19,6 +19,7 @@
             <div class="nav-links">
                 <a href="#home" class="nav-link nav-link--active" data-page="home">首页</a>
                 <a href="#download" class="nav-link" data-page="download">下载</a>
+                <div class="nav-account" id="nav-account"></div>
             </div>
         </div>
     </nav>
@@ -69,16 +70,66 @@
         <div class="page-inner">
             <a class="back-link" href="#download" data-page="download">← 返回下载</a>
             <div class="menu-list">
-                <a class="menu-button menu-button--version" href="downloads/yourworld-v0.1-win64.zip" download>
+                <button class="menu-button menu-button--version" id="download-latest" type="button">
                     <span class="menu-button__text">
                         <span class="menu-button__title menu-button__title--sm">yourworld-v0.1-win64</span>
                     </span>
                     <span class="menu-button__version">Windows 64 位</span>
-                </a>
+                </button>
             </div>
+            <p class="download-msg" id="download-msg"></p>
         </div>
     </section>
 
+    <!-- 登录 -->
+    <section class="page" id="page-login">
+        <div class="page-inner">
+            <a class="back-link" href="#home" data-page="home">← 返回首页</a>
+            <h2 class="panel-title">登录</h2>
+            <form class="auth-form" id="login-form" autocomplete="on" novalidate>
+                <label class="field">
+                    <span class="field__label">邮箱</span>
+                    <input class="field__input" type="email" name="email" autocomplete="email" required>
+                </label>
+                <label class="field">
+                    <span class="field__label">密码</span>
+                    <input class="field__input" type="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button class="menu-button auth-submit" type="submit">登录</button>
+                <p class="auth-msg" role="alert"></p>
+                <p class="auth-switch">还没有账号？<a href="#register" data-page="register">注册</a></p>
+            </form>
+        </div>
+    </section>
+
+    <!-- 注册 -->
+    <section class="page" id="page-register">
+        <div class="page-inner">
+            <a class="back-link" href="#home" data-page="home">← 返回首页</a>
+            <h2 class="panel-title">注册</h2>
+            <form class="auth-form" id="register-form" novalidate>
+                <label class="field">
+                    <span class="field__label">邮箱</span>
+                    <input class="field__input" type="email" name="email" autocomplete="email" required>
+                </label>
+                <label class="field">
+                    <span class="field__label">密码</span>
+                    <input class="field__input" type="password" name="password" autocomplete="new-password" required>
+                </label>
+                <label class="field">
+                    <span class="field__label">确认密码</span>
+                    <input class="field__input" type="password" name="confirm" autocomplete="new-password" required>
+                </label>
+                <button class="menu-button auth-submit" type="submit">注册</button>
+                <p class="auth-msg" role="alert"></p>
+                <p class="auth-switch">已有账号？<a href="#login" data-page="login">登录</a></p>
+            </form>
+        </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+    <script src="supabase-config.js"></script>
     <script src="script.js"></script>
+    <script src="auth.js"></script>
 </body>
 </html>
