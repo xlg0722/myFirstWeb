@@ -36,27 +36,8 @@
     const accountBox = document.getElementById('nav-account');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
-    const verifyForm = document.getElementById('verify-form');
-    const verifyEmail = document.getElementById('verify-email');
-    const resendButton = document.getElementById('resend-code');
     const downloadButton = document.getElementById('download-latest');
     const downloadMsg = document.getElementById('download-msg');
-
-    // 待验证邮箱：注册或登录提示未验证时记下，刷新页面后仍能显示
-    const PENDING_KEY = 'silogu.pendingEmail';
-
-    function setPendingEmail(email) {
-        try { localStorage.setItem(PENDING_KEY, email); } catch (e) { /* 隐私模式下忽略 */ }
-        showPendingEmail();
-    }
-
-    function getPendingEmail() {
-        try { return localStorage.getItem(PENDING_KEY) || ''; } catch (e) { return ''; }
-    }
-
-    function showPendingEmail() {
-        if (verifyEmail) verifyEmail.textContent = getPendingEmail() || '你的邮箱';
-    }
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -76,8 +57,8 @@
 
     function translateError(message) {
         if (/Invalid login credentials/i.test(message)) return '邮箱或密码错误';
-        if (/Email not confirmed/i.test(message)) return '邮箱还没验证，请先输入邮箱收到的验证码';
-        if (/User already registered/i.test(message)) return '这个邮箱已经注册过了';
+        if (/Email not confirmed/i.test(message)) return '邮箱还没验证，请先完成邮箱验证';
+        if (/User already registered|already confirmed/i.test(message)) return '这个邮箱已经注册过了，请直接登录';
         if (/Password should be at least/i.test(message)) return '密码至少 6 位';
         if (/Unable to validate email/i.test(message)) return '邮箱格式不正确';
         if (/Token has expired|expired or is invalid|invalid.*token/i.test(message)) return '验证码已过期，请重新发送';
@@ -147,8 +128,12 @@
 
             if (result.error) {
                 if (/Email not confirmed/i.test(result.error.message)) {
-                    setPendingEmail(email);
-                    goPage('verify');
+                    showMessage(loginForm, '邮箱还没验证，请到注册页重新发送验证码');
+                    goPage('register');
+                    if (registerForm) {
+                        registerForm.email.value = email;
+                        registerForm.password.focus();
+                    }
                     return;
                 }
                 showMessage(loginForm, translateError(result.error.message));
@@ -161,79 +146,119 @@
     }
 
     if (registerForm) {
-        registerForm.addEventListener('submit', async function (e) {
-            e.preventDefault();
+        const sendBtn = document.getElementById('send-code');
+        const tokenInput = registerForm.querySelector('input[name="token"]');
+        let sentEmail = '';
+        let countdown = 0;
+        let timer = null;
 
+        function checkFields() {
             const email = registerForm.email.value.trim();
             const password = registerForm.password.value;
             const confirm = registerForm.confirm.value;
-            const submit = registerForm.querySelector('button[type="submit"]');
 
+            if (!/^\S+@\S+\.\S+$/.test(email)) {
+                showMessage(registerForm, '邮箱格式不正确');
+                return null;
+            }
             if (password.length < 6) {
                 showMessage(registerForm, '密码至少 6 位');
-                return;
+                return null;
             }
             if (password !== confirm) {
                 showMessage(registerForm, '两次输入的密码不一致');
-                return;
+                return null;
             }
+            return { email: email, password: password };
+        }
+
+        function startCountdown() {
+            countdown = 60;
+            sendBtn.disabled = true;
+            sendBtn.textContent = countdown + ' 秒后可重发';
+            timer = setInterval(function () {
+                countdown -= 1;
+                if (countdown > 0) {
+                    sendBtn.textContent = countdown + ' 秒后可重发';
+                    return;
+                }
+                clearInterval(timer);
+                timer = null;
+                sendBtn.disabled = false;
+                sendBtn.textContent = '重新发送';
+            }, 1000);
+        }
+
+        async function sendCode() {
+            const data = checkFields();
+            if (!data) return;
 
             showMessage(registerForm, '');
-            submit.disabled = true;
-            submit.textContent = '注册中…';
+            sendBtn.disabled = true;
+            sendBtn.textContent = '发送中…';
 
-            const result = await sb.auth.signUp({
-                email: email,
-                password: password,
-                options: {
-                    // 邮箱验证链接会跳回当前站点
-                    emailRedirectTo: location.origin + location.pathname
+            let result;
+            if (sentEmail === data.email) {
+                // 同一邮箱已发过码，直接重发，避免 signUp 报"已注册"
+                result = await sb.auth.resend({ type: 'signup', email: data.email });
+            } else {
+                result = await sb.auth.signUp({
+                    email: data.email,
+                    password: data.password,
+                    options: {
+                        // 邮件里的跳转会回到当前站点
+                        emailRedirectTo: location.origin + location.pathname
+                    }
+                });
+
+                // 邮箱已存在时 Supabase 可能不报错而是返回空 identities，改用重发
+                const exists = result.data && result.data.user &&
+                    Array.isArray(result.data.user.identities) &&
+                    result.data.user.identities.length === 0;
+
+                if ((result.error && /User already registered/i.test(result.error.message)) || exists) {
+                    result = await sb.auth.resend({ type: 'signup', email: data.email });
                 }
-            });
-
-            submit.disabled = false;
-            submit.textContent = '注册';
+            }
 
             if (result.error) {
+                sendBtn.disabled = false;
+                sendBtn.textContent = sentEmail === data.email ? '重新发送' : '发送验证码';
                 showMessage(registerForm, translateError(result.error.message));
                 return;
             }
 
-            registerForm.reset();
-
-            if (result.data.session) {
+            // 邮箱验证被关闭时会直接拿到 session
+            if (result.data && result.data.session) {
                 goPage('home');
                 return;
             }
 
-            setPendingEmail(email);
-            goPage('verify');
-            if (verifyForm) {
-                showMessage(verifyForm, '验证码已发送，请到邮箱查收', 'success');
-            }
-        });
-    }
+            sentEmail = data.email;
+            startCountdown();
+            showMessage(registerForm, '验证码已发送，请查收邮箱（含垃圾邮件箱）', 'success');
+            if (tokenInput) tokenInput.focus();
+        }
 
-    // 输入验证码完成邮箱验证
-    if (verifyForm) {
-        verifyForm.addEventListener('submit', async function (e) {
+        sendBtn.addEventListener('click', sendCode);
+
+        registerForm.addEventListener('submit', async function (e) {
             e.preventDefault();
 
-            const email = getPendingEmail();
-            const token = verifyForm.token.value.replace(/\s+/g, '');
-            const submit = verifyForm.querySelector('button[type="submit"]');
+            const email = registerForm.email.value.trim();
+            const token = tokenInput ? tokenInput.value.replace(/\s+/g, '') : '';
+            const submit = registerForm.querySelector('button[type="submit"]');
 
-            if (!email) {
-                showMessage(verifyForm, '找不到待验证的邮箱，请重新注册');
-                goPage('register');
+            if (!sentEmail || sentEmail !== email) {
+                showMessage(registerForm, '请先点击「发送验证码」');
                 return;
             }
             if (!/^\d{6}$/.test(token)) {
-                showMessage(verifyForm, '请输入 6 位数字验证码');
+                showMessage(registerForm, '请输入 6 位数字验证码');
                 return;
             }
 
-            showMessage(verifyForm, '');
+            showMessage(registerForm, '');
             submit.disabled = true;
             submit.textContent = '验证中…';
 
@@ -244,63 +269,24 @@
             });
 
             submit.disabled = false;
-            submit.textContent = '验证并登录';
+            submit.textContent = '注册并登录';
 
             if (result.error) {
-                showMessage(verifyForm, translateError(result.error.message));
+                showMessage(registerForm, translateError(result.error.message));
                 return;
             }
 
-            verifyForm.reset();
+            registerForm.reset();
+            sentEmail = '';
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+            sendBtn.disabled = false;
+            sendBtn.textContent = '发送验证码';
             goPage('home');
         });
     }
-
-    // 重新发送验证码，60 秒冷却
-    if (resendButton) {
-        let countdown = 0;
-        let timer = null;
-
-        const tick = function () {
-            countdown -= 1;
-            if (countdown > 0) {
-                resendButton.disabled = true;
-                resendButton.textContent = countdown + ' 秒后可重发';
-                return;
-            }
-            clearInterval(timer);
-            timer = null;
-            resendButton.disabled = false;
-            resendButton.textContent = '重新发送';
-        };
-
-        resendButton.addEventListener('click', async function () {
-            const email = getPendingEmail();
-            if (!email) {
-                showMessage(verifyForm, '找不到待验证的邮箱，请重新注册');
-                return;
-            }
-
-            resendButton.disabled = true;
-            resendButton.textContent = '发送中…';
-
-            const result = await sb.auth.resend({ type: 'signup', email: email });
-
-            if (result.error) {
-                resendButton.disabled = false;
-                resendButton.textContent = '重新发送';
-                showMessage(verifyForm, translateError(result.error.message));
-                return;
-            }
-
-            showMessage(verifyForm, '验证码已重新发送', 'success');
-            countdown = 60;
-            resendButton.textContent = countdown + ' 秒后可重发';
-            timer = setInterval(tick, 1000);
-        });
-    }
-
-    showPendingEmail();
 
     sb.auth.onAuthStateChange(function (_event, session) {
         renderAccount(session ? session.user : null);
