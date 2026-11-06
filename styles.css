@@ -1,4 +1,4 @@
-/* ===== 基础重置 ===== */
+﻿/* ===== 基础重置 ===== */
 *,
 *::before,
 *::after {
@@ -1082,4 +1082,85 @@ button.friend-item:focus-visible {
     .chat-bubble {
         max-width: 84%;
     }
+}
+
+/* ===== 社区 ===== */
+.community-form {
+    margin-top: 2px;
+}
+
+.community-input {
+    width: 100%;
+    min-height: 84px;
+}
+
+.community-form__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.community-count {
+    font-size: 12px;
+    color: rgba(170, 190, 225, 0.45);
+}
+
+.community-send {
+    flex: none;
+    padding: 8px 18px;
+}
+
+.community-login {
+    display: inline-block;
+}
+
+.community-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.community-post {
+    padding: 12px 14px;
+    background: rgba(14, 22, 40, 0.72);
+    border: 1px solid rgba(158, 184, 232, 0.22);
+    border-radius: 8px;
+}
+
+.community-post__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.community-post__meta {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+}
+
+.community-post__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 500;
+    color: #e6eeff;
+}
+
+.community-post__time {
+    font-size: 11px;
+    color: rgba(170, 190, 225, 0.42);
+}
+
+.community-post__text {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #dfe8ff;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
