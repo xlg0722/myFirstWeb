@@ -741,6 +741,7 @@
 
     // ===== 端到端加密（ECDH P-256 + HKDF + AES-GCM） =====
     const CHAT_KEY_STORAGE = 'silogu-chat-key-v1';
+    const CHAT_KEY_META = 'chat_key_v1';   // user_metadata 里的密钥备份字段
     const CHAT_ENC_ALGO = 'ecdh-p256-aesgcm-v1';
     const textEncoder = new TextEncoder();
     const textDecoder = new TextDecoder();
@@ -777,29 +778,126 @@
         return { privateKey: privateKey, publicKey: publicKey, publicJwk: publicJwk, privateJwk: privateJwk };
     }
 
-    async function ensureLocalKeyPair() {
-        if (!currentUser) return null;
-        if (localKeyPair && localKeyPair.uid === currentUser.id) return localKeyPair;
-        if (!cryptoAvailable()) return null;
+    // ===== 密钥备份：自动存进账号的 user_metadata，换设备/清缓存后自动恢复 =====
+    // 用户完全不需要导出/导入；同一账号在任何浏览器都会拿到同一份密钥
 
+    function readLocalKey(uid) {
         try {
-            const raw = localStorage.getItem(storageKeyFor(currentUser.id));
-            if (raw) {
-                const saved = JSON.parse(raw);
-                if (saved && saved.privateKey && saved.publicKey) {
-                    const imported = await importPairFromJwk(saved.privateKey, saved.publicKey);
-                    localKeyPair = {
-                        uid: currentUser.id,
-                        privateKey: imported.privateKey,
-                        publicKey: imported.publicKey,
-                        publicJwk: saved.publicKey,
-                        privateJwk: saved.privateKey
-                    };
-                    return localKeyPair;
-                }
-            }
+            const raw = localStorage.getItem(storageKeyFor(uid));
+            if (!raw) return null;
+            const saved = JSON.parse(raw);
+            if (saved && saved.privateKey && saved.publicKey) return saved;
         } catch (err) {
             console.warn('读取本机密钥失败：', err);
+        }
+        return null;
+    }
+
+    function saveLocalKey(uid, privateJwk, publicJwk, createdAt) {
+        try {
+            localStorage.setItem(storageKeyFor(uid), JSON.stringify({
+                version: 1,
+                uid: uid,
+                privateKey: privateJwk,
+                publicKey: publicJwk,
+                createdAt: createdAt || new Date().toISOString()
+            }));
+        } catch (err) {
+            console.warn('保存本机密钥失败：', err);
+        }
+    }
+
+    function keyFromUser(user) {
+        const meta = user && user.user_metadata;
+        const saved = meta && meta[CHAT_KEY_META];
+        if (!saved || !saved.privateKey || !saved.publicKey) return null;
+        return saved;
+    }
+
+    async function fetchCloudKey() {
+        try {
+            const result = await sb.auth.getUser();
+            if (result.error) {
+                console.warn('读取云端密钥失败：', result.error);
+                return undefined;   // 读取失败（网络/鉴权）
+            }
+            // null 表示账号里还没有备份
+            return keyFromUser(result.data && result.data.user);
+        } catch (err) {
+            console.warn('读取云端密钥失败：', err);
+            return undefined;
+        }
+    }
+
+    async function backupCloudKey(privateJwk, publicJwk) {
+        try {
+            const result = await sb.auth.updateUser({
+                data: {
+                    [CHAT_KEY_META]: {
+                        privateKey: privateJwk,
+                        publicKey: publicJwk,
+                        createdAt: new Date().toISOString()
+                    }
+                }
+            });
+            if (result.error) console.warn('备份云端密钥失败：', result.error);
+            return !result.error;
+        } catch (err) {
+            console.warn('备份云端密钥失败：', err);
+            return false;
+        }
+    }
+
+    let keyPairInitializing = null;
+
+    // 同一时间只初始化一次，避免登录时两个入口各自生成一份密钥
+    function ensureLocalKeyPair() {
+        if (!currentUser) return Promise.resolve(null);
+        if (localKeyPair && localKeyPair.uid === currentUser.id) return Promise.resolve(localKeyPair);
+        if (!cryptoAvailable()) return Promise.resolve(null);
+
+        if (!keyPairInitializing) {
+            keyPairInitializing = initLocalKeyPair().finally(function () {
+                keyPairInitializing = null;
+            });
+        }
+        return keyPairInitializing;
+    }
+
+    async function initLocalKeyPair() {
+        const uid = currentUser.id;
+
+        // 以云端备份为准：任何设备都复用同一份密钥，不会各自生成、导致两边对不上
+        const cloud = await fetchCloudKey();
+        const local = readLocalKey(uid);
+        let saved = local;
+
+        if (cloud !== undefined) {
+            saved = cloud || local;
+        } else if (!local) {
+            // 读不到云端、本机也没有密钥时先不生成：离线生成的新密钥会覆盖云端备份
+            console.warn('暂时无法获取聊天密钥，请检查网络后刷新');
+            return null;
+        }
+
+        if (saved) {
+            try {
+                const imported = await importPairFromJwk(saved.privateKey, saved.publicKey);
+                if (!currentUser || currentUser.id !== uid) return null;
+                localKeyPair = {
+                    uid: uid,
+                    privateKey: imported.privateKey,
+                    publicKey: imported.publicKey,
+                    publicJwk: saved.publicKey,
+                    privateJwk: saved.privateKey
+                };
+                saveLocalKey(uid, saved.privateKey, saved.publicKey, saved.createdAt);
+                // 本机有旧密钥但云端还没有备份时，顺手补传一次
+                if (!cloud) await backupCloudKey(saved.privateKey, saved.publicKey);
+                return localKeyPair;
+            } catch (err) {
+                console.warn('导入已保存的聊天密钥失败，重新生成：', err);
+            }
         }
 
         const generated = await crypto.subtle.generateKey(
@@ -807,22 +905,17 @@
         );
         const privateJwk = await crypto.subtle.exportKey('jwk', generated.privateKey);
         const publicJwk = await crypto.subtle.exportKey('jwk', generated.publicKey);
-
-        localStorage.setItem(storageKeyFor(currentUser.id), JSON.stringify({
-            version: 1,
-            uid: currentUser.id,
-            privateKey: privateJwk,
-            publicKey: publicJwk,
-            createdAt: new Date().toISOString()
-        }));
+        if (!currentUser || currentUser.id !== uid) return null;
 
         localKeyPair = {
-            uid: currentUser.id,
+            uid: uid,
             privateKey: generated.privateKey,
             publicKey: generated.publicKey,
             publicJwk: publicJwk,
             privateJwk: privateJwk
         };
+        saveLocalKey(uid, privateJwk, publicJwk);
+        await backupCloudKey(privateJwk, publicJwk);
         return localKeyPair;
     }
 
@@ -1050,13 +1143,20 @@
         const map = {};
         (prof.data || []).forEach(function (p) { map[p.id] = p; });
 
-        // 对方换了密钥设备时，旧缓存会解不开，这里统一清空重新派生
-        chatKeyCache = {};
+        // 记下旧公钥，只有对方换了密钥设备时才丢弃对应的聊天密钥缓存
+        const previousKeys = {};
+        friends.forEach(function (f) { previousKeys[f.id] = f.public_key; });
 
         friends = ids.map(function (id) {
             return normalizeProfile(map[id] || { id: id });
         }).sort(function (a, b) {
             return a.nickname.localeCompare(b.nickname, 'zh-CN');
+        });
+
+        friends.forEach(function (f) {
+            if (previousKeys[f.id] && previousKeys[f.id] !== f.public_key) {
+                delete chatKeyCache[f.id];
+            }
         });
 
         if (activeFriend) {
@@ -1078,19 +1178,24 @@
             return;
         }
 
-        const outgoing = await sb.from('friend_requests')
-            .select('to_id')
-            .eq('from_id', currentUser.id)
-            .eq('status', 'pending');
+        // 已发出的申请和收到的申请并行查询，少一次往返
+        const results = await Promise.all([
+            sb.from('friend_requests')
+                .select('to_id')
+                .eq('from_id', currentUser.id)
+                .eq('status', 'pending'),
+            sb.from('friend_requests')
+                .select('id, from_id, created_at')
+                .eq('to_id', currentUser.id)
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false })
+        ]);
+
+        const outgoing = results[0];
+        const list = results[1];
 
         if (outgoing.error) console.warn('读取已发申请失败：', outgoing.error);
         (outgoing.data || []).forEach(function (r) { pendingOutgoing[r.to_id] = true; });
-
-        const list = await sb.from('friend_requests')
-            .select('id, from_id, created_at')
-            .eq('to_id', currentUser.id)
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false });
 
         if (list.error) {
             console.warn('读取好友申请失败：', list.error);
@@ -1150,7 +1255,6 @@
         });
 
         renderBadge();
-        renderFriends();
     }
 
     async function loadBlocked() {
@@ -1200,6 +1304,9 @@
         });
     }
 
+    let socialRefreshing = null;   // 正在进行的刷新，避免重复请求
+    let socialLoadedAt = 0;        // 上次刷新完成时间
+
     async function refreshSocial() {
         if (!currentUser) {
             friends = [];
@@ -1217,7 +1324,20 @@
             return;
         }
 
-        await Promise.all([loadFriends(), loadRequests(), loadUnread(), loadBlocked()]);
+        if (socialRefreshing) return socialRefreshing;
+
+        socialRefreshing = Promise.all([
+            loadFriends(),
+            loadRequests(),
+            loadUnread(),
+            loadBlocked()
+        ]).then(function () {
+            socialLoadedAt = Date.now();
+        }).finally(function () {
+            socialRefreshing = null;
+        });
+
+        return socialRefreshing;
     }
 
     function stopRealtime() {
@@ -1225,6 +1345,26 @@
             sb.removeChannel(realtimeChannel);
             realtimeChannel = null;
         }
+    }
+
+    let messageReloadTimer = null;
+    let unreadReloadTimer = null;
+    let requestsReloadTimer = null;
+
+    // 实时推送可能短时间连发多条，合并成一次刷新
+    function scheduleMessageReload() {
+        clearTimeout(messageReloadTimer);
+        messageReloadTimer = setTimeout(function () { loadMessages(); }, 250);
+    }
+
+    function scheduleUnreadReload() {
+        clearTimeout(unreadReloadTimer);
+        unreadReloadTimer = setTimeout(function () { loadUnread(); }, 400);
+    }
+
+    function scheduleRequestsReload() {
+        clearTimeout(requestsReloadTimer);
+        requestsReloadTimer = setTimeout(function () { loadRequests(); }, 400);
     }
 
     function startRealtime() {
@@ -1242,10 +1382,10 @@
             }, function (payload) {
                 const msg = payload.new;
                 if (activeFriend && msg.sender_id === activeFriend.id) {
-                    loadMessages();
+                    scheduleMessageReload();
                     markChatRead();
                 } else {
-                    loadUnread();
+                    scheduleUnreadReload();
                 }
             })
             .on('postgres_changes', {
@@ -1255,7 +1395,7 @@
                 filter: 'sender_id=eq.' + me
             }, function (payload) {
                 if (activeFriend && payload.new.receiver_id === activeFriend.id) {
-                    loadMessages();
+                    scheduleMessageReload();
                 }
             })
             .on('postgres_changes', {
@@ -1264,7 +1404,7 @@
                 table: 'friend_requests',
                 filter: 'to_id=eq.' + me
             }, function () {
-                loadRequests();
+                scheduleRequestsReload();
             })
             .subscribe();
     }
@@ -1285,8 +1425,6 @@
 
     async function renderMessages(list) {
         if (!chatMessagesBox) return;
-        chatMessagesBox.textContent = '';
-        if (chatEmpty) chatEmpty.hidden = list.length > 0;
 
         let aesKey = null;
         if (activeFriend) {
@@ -1297,45 +1435,72 @@
             }
         }
 
-        for (let i = 0; i < list.length; i += 1) {
-            const m = list[i];
-            let text = m.content;
+        // 并行解密，避免 200 条消息一条条排队
+        const texts = await Promise.all(list.map(function (m) {
+            if (!m.enc_algo) return Promise.resolve(m.content);
+            if (!aesKey) return Promise.resolve('（这条旧消息无法显示）');
+            return decryptMessage(aesKey, m.content).catch(function () {
+                return '（这条旧消息无法显示）';
+            });
+        }));
 
-            if (m.enc_algo) {
-                if (!aesKey) {
-                    text = '（无法解密：缺少聊天密钥）';
-                } else {
-                    try {
-                        text = await decryptMessage(aesKey, m.content);
-                    } catch (err) {
-                        text = '（无法解密：密钥不匹配）';
-                    }
-                }
-            }
+        const frag = document.createDocumentFragment();
+        const meId = currentUser ? currentUser.id : null;
 
+        list.forEach(function (m, index) {
             const row = document.createElement('div');
-            row.className = 'chat-row' + (m.sender_id === currentUser.id ? ' chat-row--mine' : '');
+            row.className = 'chat-row' + (m.sender_id === meId ? ' chat-row--mine' : '');
 
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble';
-            bubble.textContent = text;
+            bubble.textContent = texts[index];
 
             const time = document.createElement('span');
             time.className = 'chat-time';
             time.textContent = formatMessageTime(m.created_at);
 
             row.append(bubble, time);
-            chatMessagesBox.appendChild(row);
-        }
+            frag.appendChild(row);
+        });
+
+        chatMessagesBox.textContent = '';
+        chatMessagesBox.appendChild(frag);
+        if (chatEmpty) chatEmpty.hidden = list.length > 0;
 
         scrollChatToBottom();
+    }
+
+    // 对方可能换过设备，聊天前拉一次最新公钥，避免继续用旧公钥加密/解密
+    async function refreshFriendKey(friend) {
+        if (!currentUser || !friend) return friend;
+        try {
+            const result = await sb.from('profiles')
+                .select('public_key')
+                .eq('id', friend.id)
+                .maybeSingle();
+
+            if (result.error || !result.data) return friend;
+            const latest = result.data.public_key || null;
+            if (latest !== friend.public_key) {
+                friend.public_key = latest;
+                delete chatKeyCache[friend.id];
+                const inList = friends.find(function (f) { return f.id === friend.id; });
+                if (inList) inList.public_key = latest;
+                if (activeFriend && activeFriend.id === friend.id) activeFriend.public_key = latest;
+            }
+        } catch (err) {
+            console.warn('刷新好友公钥失败：', err);
+        }
+        return friend;
     }
 
     async function loadMessages() {
         if (!currentUser || !activeFriend) return;
 
+        const target = activeFriend;
+        const keyRefresh = refreshFriendKey(target);
         const me = currentUser.id;
-        const other = activeFriend.id;
+        const other = target.id;
         const filter = 'and(sender_id.eq.' + me + ',receiver_id.eq.' + other + ')' +
             ',and(sender_id.eq.' + other + ',receiver_id.eq.' + me + ')';
 
@@ -1344,6 +1509,9 @@
             .or(filter)
             .order('created_at', { ascending: false })
             .limit(200);
+
+        // 公钥查询和消息查询并行，尽量不额外增加打开聊天的等待
+        await keyRefresh;
 
         if (result.error) {
             setSocialMsg(chatMsg, '消息加载失败：' + socialError(result.error));
@@ -1365,7 +1533,7 @@
             .is('read_at', null);
 
         if (result.error) console.warn('标记已读失败：', result.error);
-        await loadUnread();
+        scheduleUnreadReload();
     }
 
     function openChat(friend) {
@@ -1382,7 +1550,16 @@
         }
         if (chatInput) chatInput.value = '';
 
-        markChatRead().then(loadMessages).then(function () {
+        // 先把本会话未读清零，红点立即消失，不等待网络
+        if (unreadByFriend[friend.id]) {
+            unreadByFriend[friend.id] = 0;
+            renderBadge();
+            renderFriends();
+        }
+
+        // 标记已读与拉消息并行，不再串成一条长链
+        markChatRead();
+        loadMessages().then(function () {
             if (chatInput) chatInput.focus();
         });
     }
@@ -1582,6 +1759,7 @@
 
             let aesKey;
             try {
+                await refreshFriendKey(activeFriend);
                 aesKey = await deriveChatKey(activeFriend);
             } catch (err) {
                 setSocialMsg(chatMsg, '发送失败：' + err.message);
@@ -1751,6 +1929,8 @@
             };
             chatKeyCache = {};
 
+            // 导入的密钥同步到账号备份，换设备后也能直接用
+            await backupCloudKey(data.privateKey, data.publicKey);
             await publishPublicKey();
             if (activeFriend) await loadMessages();
 
@@ -1809,6 +1989,10 @@
             goPage('login');
             return;
         }
+
+        // 已经在刷新，或 15 秒内刚刷新过，就不再重复打一轮接口
+        if (socialRefreshing) return;
+        if (socialLoadedAt && Date.now() - socialLoadedAt < 15000) return;
 
         refreshSocial();
     });
