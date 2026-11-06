@@ -111,10 +111,10 @@
                                       maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
                             <div class="media-pick">
                                 <button class="friend-action media-pick__btn" id="community-attach" type="button">图片 / 视频</button>
-                                <span class="media-pick__name" id="community-attach-name"></span>
-                                <button class="friend-action media-pick__clear" id="community-attach-clear" type="button" hidden>移除</button>
+                                <span class="media-pick__name" id="community-attach-name">最多选 9 个</span>
                             </div>
-                            <input class="media-file" type="file" id="community-file" accept="image/*,video/*" hidden>
+                            <div class="media-pick__list" id="community-attach-list"></div>
+                            <input class="media-file" type="file" id="community-file" accept="image/*,video/*" multiple hidden>
                             <div class="community-form__foot">
                                 <span class="community-count" id="community-count">0/500</span>
                                 <button class="code-send community-send" type="submit">发布</button>
@@ -122,7 +122,15 @@
                             <p class="auth-msg" id="community-msg" role="alert"></p>
                         </form>
 
-                        <h3 class="section-title">最新消息</h3>
+                        <div class="community-list__head">
+                            <h3 class="section-title">最新消息</h3>
+                            <select class="community-sort" id="community-sort" aria-label="排序方式">
+                                <option value="new">最新发布</option>
+                                <option value="old">最早发布</option>
+                                <option value="hot">点赞最多</option>
+                                <option value="cold">点赞最少</option>
+                            </select>
+                        </div>
                         <div class="community-list" id="community-feed"></div>
                         <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
                     </div>
