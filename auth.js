@@ -1,5 +1,5 @@
 /**
- * 登录 / 注册 / 会话保持 / 下载鉴权
+ * 登录 / 注册 / 会话保持 / 个人资料 / 注销账号 / 下载鉴权
  * 依赖：@supabase/supabase-js CDN、supabase-config.js
  */
 (function () {
@@ -34,10 +34,26 @@
     const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
 
     const accountBox = document.getElementById('nav-account');
+    const navProfile = document.getElementById('nav-profile');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
+    const profileForm = document.getElementById('profile-form');
+    const deleteForm = document.getElementById('delete-form');
+    const avatarButton = document.getElementById('avatar-pick');
+    const avatarInput = document.getElementById('avatar-file');
+    const avatarImg = document.getElementById('profile-avatar-img');
+    const avatarFallback = document.getElementById('profile-avatar-fallback');
+    const profileNameEl = document.getElementById('profile-name');
+    const profileEmailEl = document.getElementById('profile-email');
     const downloadButton = document.getElementById('download-latest');
     const downloadMsg = document.getElementById('download-msg');
+
+    const AVATAR_BUCKET = 'avatars';
+    const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
+    const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+    let currentUser = null;
+    let currentProfile = null;
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -65,22 +81,62 @@
         if (/Token.*not found|otp.*not found/i.test(message)) return '验证码不正确，请检查后重试';
         if (/rate limit|too many/i.test(message)) return '操作太频繁，稍后再试';
         if (/Failed to fetch/i.test(message)) return '连不上服务器，检查网络后重试';
+        if (/Bucket not found/i.test(message)) return '头像存储桶不存在，请先完成数据库初始化';
+        if (/row-level security/i.test(message)) return '没有权限执行这个操作，请先完成数据库初始化';
+        if (/does not exist/i.test(message)) return '数据库还没初始化，请先在 Supabase 执行初始化脚本';
         return message;
     }
 
     function displayNameOf(user) {
-        const name = (user.email || '').split('@')[0];
+        const name = ((user && user.email) || '').split('@')[0];
         return name || '玩家';
     }
 
-    function renderAccount(user) {
+    function nicknameOf() {
+        if (currentProfile && currentProfile.nickname) return currentProfile.nickname;
+        return displayNameOf(currentUser);
+    }
+
+    function initialOf() {
+        return (nicknameOf() || '?').trim().charAt(0).toUpperCase();
+    }
+
+    // 头像地址带上资料更新时间，覆盖上传后不会读到浏览器旧缓存
+    function avatarSrc() {
+        if (!currentProfile || !currentProfile.avatar_url) return '';
+        const base = currentProfile.avatar_url;
+        const stamp = currentProfile.updated_at ? new Date(currentProfile.updated_at).getTime() : 0;
+        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 't=' + stamp;
+    }
+
+    function renderAccount() {
         if (!accountBox) return;
         accountBox.textContent = '';
 
-        if (user) {
-            const name = document.createElement('span');
+        if (navProfile) navProfile.hidden = !currentUser;
+
+        if (currentUser) {
+            const avatar = document.createElement('span');
+            avatar.className = 'nav-avatar';
+            const src = avatarSrc();
+            if (src) {
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = '';
+                avatar.appendChild(img);
+            } else {
+                avatar.textContent = initialOf();
+            }
+
+            const name = document.createElement('a');
+            name.href = '#profile';
             name.className = 'nav-account__name';
-            name.textContent = displayNameOf(user);
+            name.title = '个人资料';
+            name.textContent = nicknameOf();
+            name.addEventListener('click', function (e) {
+                e.preventDefault();
+                goPage('profile');
+            });
 
             const logout = document.createElement('button');
             logout.type = 'button';
@@ -88,7 +144,7 @@
             logout.dataset.action = 'logout';
             logout.textContent = '退出';
 
-            accountBox.append(name, logout);
+            accountBox.append(avatar, name, logout);
             return;
         }
 
@@ -98,6 +154,92 @@
         login.dataset.page = 'login';
         login.textContent = '登录';
         accountBox.appendChild(login);
+    }
+
+    function renderProfilePage() {
+        if (!profileForm) return;
+
+        if (!currentUser) {
+            if (profileNameEl) profileNameEl.textContent = '';
+            if (profileEmailEl) profileEmailEl.textContent = '';
+            if (profileForm.nickname) profileForm.nickname.value = '';
+            return;
+        }
+
+        const src = avatarSrc();
+
+        if (avatarFallback) avatarFallback.textContent = initialOf();
+
+        if (avatarImg) {
+            if (src) {
+                avatarImg.src = src;
+                avatarImg.hidden = false;
+                if (avatarFallback) avatarFallback.hidden = true;
+            } else {
+                avatarImg.hidden = true;
+                avatarImg.removeAttribute('src');
+                if (avatarFallback) avatarFallback.hidden = false;
+            }
+        }
+
+        if (profileNameEl) profileNameEl.textContent = nicknameOf();
+        if (profileEmailEl) profileEmailEl.textContent = currentUser.email || '';
+        if (profileForm.nickname) profileForm.nickname.value = nicknameOf();
+    }
+
+    async function loadProfile(user) {
+        if (!user) {
+            currentProfile = null;
+            return;
+        }
+
+        try {
+            const result = await sb
+                .from('profiles')
+                .select('nickname, avatar_url, updated_at')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            if (result.error) throw result.error;
+
+            if (result.data) {
+                currentProfile = result.data;
+                return;
+            }
+
+            // 触发器没建好时兜底：第一次登录顺手补一条资料
+            const nickname = displayNameOf(user);
+            const inserted = await sb
+                .from('profiles')
+                .insert({ id: user.id, nickname: nickname })
+                .select('nickname, avatar_url, updated_at')
+                .maybeSingle();
+
+            currentProfile = inserted.data || {
+                nickname: nickname,
+                avatar_url: null,
+                updated_at: null
+            };
+        } catch (err) {
+            currentProfile = {
+                nickname: displayNameOf(user),
+                avatar_url: null,
+                updated_at: null
+            };
+            console.warn('读取个人资料失败：', err);
+        }
+    }
+
+    async function syncUser(user) {
+        currentUser = user || null;
+        await loadProfile(currentUser);
+        renderAccount();
+        renderProfilePage();
+
+        // 退出后仍停在个人资料页时回到登录页
+        if (!currentUser && location.hash === '#profile') {
+            goPage('login');
+        }
     }
 
     if (accountBox) {
@@ -288,12 +430,206 @@
         });
     }
 
-    sb.auth.onAuthStateChange(function (_event, session) {
-        renderAccount(session ? session.user : null);
+    // ===== 个人资料 =====
+
+    if (profileForm) {
+        profileForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                showMessage(profileForm, '请先登录');
+                goPage('login');
+                return;
+            }
+
+            const nickname = profileForm.nickname.value.trim();
+            if (nickname.length < 1 || nickname.length > 20) {
+                showMessage(profileForm, '昵称需要 1-20 个字符');
+                return;
+            }
+
+            const submit = profileForm.querySelector('button[type="submit"]');
+            showMessage(profileForm, '');
+            submit.disabled = true;
+            submit.textContent = '保存中…';
+
+            const result = await sb
+                .from('profiles')
+                .upsert({ id: currentUser.id, nickname: nickname }, { onConflict: 'id' })
+                .select('nickname, avatar_url, updated_at')
+                .maybeSingle();
+
+            submit.disabled = false;
+            submit.textContent = '保存昵称';
+
+            if (result.error) {
+                showMessage(profileForm, '保存失败：' + translateError(result.error.message));
+                return;
+            }
+
+            if (result.data) {
+                currentProfile = result.data;
+            } else {
+                currentProfile = {
+                    nickname: nickname,
+                    avatar_url: currentProfile ? currentProfile.avatar_url : null,
+                    updated_at: new Date().toISOString()
+                };
+            }
+
+            renderAccount();
+            renderProfilePage();
+            showMessage(profileForm, '昵称已保存', 'success');
+        });
+    }
+
+    if (avatarButton && avatarInput) {
+        avatarButton.addEventListener('click', function () {
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+            avatarInput.click();
+        });
+
+        avatarInput.addEventListener('change', async function () {
+            const file = avatarInput.files && avatarInput.files[0];
+            avatarInput.value = '';
+            if (!file) return;
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+
+            if (AVATAR_TYPES.indexOf(file.type) === -1) {
+                showMessage(profileForm, '只支持 JPG / PNG / WebP / GIF 图片');
+                return;
+            }
+            if (file.size > AVATAR_MAX_SIZE) {
+                showMessage(profileForm, '图片不能超过 2MB');
+                return;
+            }
+
+            showMessage(profileForm, '');
+            avatarButton.disabled = true;
+
+            // 固定路径 + upsert：同一账号只保留一张头像，覆盖旧图
+            const path = currentUser.id + '/avatar';
+            const upload = await sb.storage
+                .from(AVATAR_BUCKET)
+                .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
+
+            if (upload.error) {
+                avatarButton.disabled = false;
+                showMessage(profileForm, '头像上传失败：' + translateError(upload.error.message));
+                return;
+            }
+
+            const publicUrl = sb.storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl;
+
+            const saved = await sb
+                .from('profiles')
+                .upsert(
+                    { id: currentUser.id, nickname: nicknameOf(), avatar_url: publicUrl },
+                    { onConflict: 'id' }
+                )
+                .select('nickname, avatar_url, updated_at')
+                .maybeSingle();
+
+            avatarButton.disabled = false;
+
+            if (saved.error) {
+                showMessage(profileForm, '头像保存失败：' + translateError(saved.error.message));
+                return;
+            }
+
+            if (saved.data) currentProfile = saved.data;
+
+            renderAccount();
+            renderProfilePage();
+            showMessage(profileForm, '头像已更新', 'success');
+        });
+    }
+
+    // ===== 注销账号 =====
+
+    if (deleteForm) {
+        deleteForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                showMessage(deleteForm, '请先登录');
+                goPage('login');
+                return;
+            }
+
+            const password = deleteForm.password.value;
+            const confirmText = deleteForm.confirm.value.trim();
+
+            if (confirmText !== '注销') {
+                showMessage(deleteForm, '请在确认框里输入「注销」两个字');
+                return;
+            }
+            if (!password) {
+                showMessage(deleteForm, '请输入当前密码');
+                return;
+            }
+
+            const submit = deleteForm.querySelector('button[type="submit"]');
+            showMessage(deleteForm, '');
+            submit.disabled = true;
+            submit.textContent = '注销中…';
+
+            // 先用密码重新验证身份，避免别人拿到已登录的电脑就能删号
+            const check = await sb.auth.signInWithPassword({
+                email: currentUser.email,
+                password: password
+            });
+
+            if (check.error) {
+                submit.disabled = false;
+                submit.textContent = '永久注销账号';
+                showMessage(deleteForm, '密码不正确，账号没有注销');
+                return;
+            }
+
+            const result = await sb.rpc('delete_my_account');
+
+            if (result.error) {
+                submit.disabled = false;
+                submit.textContent = '永久注销账号';
+                showMessage(deleteForm, '注销失败：' + result.error.message);
+                return;
+            }
+
+            try {
+                await sb.auth.signOut({ scope: 'local' });
+            } catch (err) {
+                console.warn('退出登录失败：', err);
+            }
+
+            currentUser = null;
+            currentProfile = null;
+            deleteForm.reset();
+            renderAccount();
+            renderProfilePage();
+            goPage('home');
+            window.alert('账号已注销，昵称、头像和账号信息都已永久删除。');
+        });
+    }
+
+    sb.auth.onAuthStateChange(function () {
+        // 回调里直接调用其它 supabase 方法可能死锁，延后到当前事件结束
+        setTimeout(function () {
+            sb.auth.getSession().then(function (result) {
+                syncUser(result.data.session ? result.data.session.user : null);
+            });
+        }, 0);
     });
 
     sb.auth.getSession().then(function (result) {
-        renderAccount(result.data.session ? result.data.session.user : null);
+        syncUser(result.data.session ? result.data.session.user : null);
     });
 
     if (downloadButton) {
