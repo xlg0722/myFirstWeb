@@ -92,7 +92,7 @@
 
     <!-- 社区 -->
     <section class="page" id="page-community">
-        <div class="page-inner page-inner--wide">
+        <div class="page-inner page-inner--wide page-inner--community">
             <a class="back-link" href="#home" data-page="home">← 返回首页</a>
             <h2 class="panel-title">社区</h2>
 
@@ -114,10 +114,17 @@
                     <p class="auth-msg" id="community-msg" role="alert"></p>
                 </form>
 
-                <div class="friend-section">
-                    <h3 class="section-title">最新消息</h3>
-                    <div class="community-list" id="community-feed"></div>
-                    <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
+                <div class="community-layout">
+                    <div class="community-left">
+                        <h3 class="section-title">最新消息</h3>
+                        <div class="community-list" id="community-feed"></div>
+                        <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
+                    </div>
+                    <div class="community-divider" aria-hidden="true"></div>
+                    <div class="community-right">
+                        <p class="friends-empty" id="community-detail-empty">点击左侧的一条消息，这里会显示完整内容和评论</p>
+                        <div id="community-detail-body" hidden></div>
+                    </div>
                 </div>
             </div>
         </div>
