@@ -1241,7 +1241,7 @@ button.friend-item:focus-visible {
 
 /* ===== 社区两栏布局 ===== */
 .page-inner--community {
-    max-width: 980px;
+    max-width: 1180px;
 }
 
 .community-layout {
@@ -1375,5 +1375,121 @@ button.friend-item:focus-visible {
                     rgba(158, 184, 232, 0.35) 12%,
                     rgba(158, 184, 232, 0.35) 88%,
                     rgba(158, 184, 232, 0) 100%);
+    }
+}
+
+/* ===== 图片 / 视频附件 ===== */
+.media-file {
+    display: none;
+}
+
+/* 社区发布框里的「图片 / 视频」一行 */
+.media-pick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+}
+
+.media-pick__btn {
+    flex: none;
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.media-pick__name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(186, 204, 235, 0.6);
+}
+
+.media-pick__clear {
+    flex: none;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+
+/* 聊天输入框左侧的附件按钮 */
+.chat-attach {
+    flex: none;
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 18px;
+    line-height: 1;
+}
+
+.chat-attach-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: rgba(14, 22, 40, 0.76);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 8px;
+}
+
+.chat-attach-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(210, 224, 255, 0.8);
+}
+
+.chat-attach-clear {
+    flex: none;
+    padding: 0;
+    font: inherit;
+    color: #ff9aa2;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.chat-attach-clear:hover {
+    color: #ffc0c5;
+}
+
+/* 动态详情里的图片 / 视频 */
+.community-media {
+    display: block;
+    max-width: 100%;
+    max-height: 360px;
+    margin-top: 10px;
+    border-radius: 8px;
+    background: rgba(8, 14, 28, 0.5);
+    object-fit: contain;
+}
+
+/* 聊天气泡里的图片 / 视频 */
+.chat-media {
+    display: block;
+    max-width: 100%;
+    max-height: 280px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background: rgba(8, 14, 28, 0.5);
+    object-fit: contain;
+}
+
+/* 媒体 + 文字时，文字另起一块 */
+.chat-bubble__text {
+    display: block;
+}
+
+@media (max-width: 760px) {
+    .community-media {
+        max-height: 260px;
+    }
+
+    .chat-media {
+        max-height: 220px;
     }
 }
