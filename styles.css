@@ -29,6 +29,11 @@ img {
     display: block;
 }
 
+/* hidden 属性必须真的隐藏，否则会被后面的 display:flex / block 覆盖 */
+[hidden] {
+    display: none !important;
+}
+
 /* ===== 导航栏 ===== */
 .navbar {
     position: fixed;
@@ -102,10 +107,6 @@ img {
 .nav-link--active {
     color: #fff;
     background: rgba(255, 255, 255, 0.1);
-}
-
-.nav-link[hidden] {
-    display: none;
 }
 
 /* ===== 星空背景 ===== */
