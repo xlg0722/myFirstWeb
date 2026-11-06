@@ -79,10 +79,13 @@
     const chatReportBtn = document.getElementById('chat-report');
     const blockedWrap = document.getElementById('blocked-wrap');
     const blockedListBox = document.getElementById('blocked-list');
-    const keyExportBtn = document.getElementById('key-export');
-    const keyImportBtn = document.getElementById('key-import');
-    const keyFileInput = document.getElementById('key-file');
-    const keyMsg = document.getElementById('key-msg');
+    // 他人资料页
+    const userAvatarImg = document.getElementById('user-avatar-img');
+    const userAvatarFallback = document.getElementById('user-avatar-fallback');
+    const userNameEl = document.getElementById('user-name');
+    const userEmailEl = document.getElementById('user-email');
+    const userAddBtn = document.getElementById('user-add-friend');
+    const userMsg = document.getElementById('user-msg');
 
     // 社区
     const communityForm = document.getElementById('community-form');
@@ -122,6 +125,7 @@
     let pendingOutgoing = {};    // to_id -> true
     let searchResults = [];
     let activeFriend = null;
+    let viewedUser = null;       // 正在查看的他人资料
     let unreadByFriend = {};     // friend_id -> 未读条数
     let realtimeChannel = null;
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
@@ -796,6 +800,104 @@
             updated_at: p.updated_at || null,
             public_key: p.public_key || null
         };
+    }
+
+    // 点社区头像进入对方资料页
+    function openUserProfile(person) {
+        if (!person || !person.id) return;
+        if (currentUser && person.id === currentUser.id) {
+            goPage('profile');
+            return;
+        }
+        viewedUser = normalizeProfile(person);
+        goPage('user');
+    }
+
+    function renderUserFriendState() {
+        if (!userAddBtn) return;
+        if (!currentUser || !viewedUser) {
+            userAddBtn.hidden = true;
+            return;
+        }
+
+        userAddBtn.hidden = false;
+        userAddBtn.disabled = false;
+        userAddBtn.textContent = '加好友';
+
+        if (friends.some(function (f) { return f.id === viewedUser.id; })) {
+            userAddBtn.textContent = '已是好友';
+            userAddBtn.disabled = true;
+            return;
+        }
+        if (pendingOutgoing[viewedUser.id]) {
+            userAddBtn.textContent = '已发送申请';
+            userAddBtn.disabled = true;
+            return;
+        }
+        if (pendingRequests.some(function (r) { return r.from_id === viewedUser.id; })) {
+            userAddBtn.textContent = '对方已申请你，去好友页处理';
+            userAddBtn.disabled = true;
+        }
+    }
+
+    function renderUserProfile() {
+        if (!viewedUser) {
+            goPage('community');
+            return;
+        }
+
+        if (userNameEl) userNameEl.textContent = viewedUser.nickname;
+        if (userEmailEl) userEmailEl.textContent = '社区用户';
+
+        if (userAvatarImg && userAvatarFallback) {
+            const src = profileAvatarSrc(viewedUser);
+            if (src) {
+                userAvatarImg.src = src;
+                userAvatarImg.hidden = false;
+                userAvatarFallback.hidden = true;
+            } else {
+                userAvatarImg.hidden = true;
+                userAvatarImg.removeAttribute('src');
+                userAvatarFallback.hidden = false;
+                userAvatarFallback.textContent =
+                    (viewedUser.nickname || '?').trim().charAt(0).toUpperCase();
+            }
+        }
+
+        renderUserFriendState();
+        setSocialMsg(userMsg, '');
+    }
+
+    async function addFriendFromUserPage() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        if (!viewedUser || !userAddBtn) return;
+
+        userAddBtn.disabled = true;
+        const result = await sb.rpc('send_friend_request', { p_to: viewedUser.id });
+
+        if (result.error) {
+            userAddBtn.disabled = false;
+            setSocialMsg(userMsg, '发送失败：' + socialError(result.error));
+            return;
+        }
+
+        if (result.data === 'accepted' || result.data === 'already_friends') {
+            await refreshSocial();
+            renderUserFriendState();
+            setSocialMsg(userMsg, '你们已经是好友了', 'success');
+            return;
+        }
+
+        pendingOutgoing[viewedUser.id] = true;
+        renderUserFriendState();
+        setSocialMsg(userMsg, '好友申请已发送，等对方同意', 'success');
+    }
+
+    if (userAddBtn) {
+        userAddBtn.addEventListener('click', addFriendFromUserPage);
     }
 
     // ===== 端到端加密（ECDH P-256 + HKDF + AES-GCM） =====
@@ -2014,87 +2116,6 @@
         setSocialMsg(chatMsg, '举报已提交，我们会尽快处理', 'success');
     }
 
-    async function exportChatKey() {
-        if (!currentUser) {
-            goPage('login');
-            return;
-        }
-
-        setSocialMsg(keyMsg, '');
-        const pair = await ensureLocalKeyPair();
-        if (!pair || !pair.privateJwk) {
-            setSocialMsg(keyMsg, '当前环境不支持导出密钥');
-            return;
-        }
-
-        const payload = {
-            type: 'silogu-chat-key',
-            version: 1,
-            uid: currentUser.id,
-            privateKey: pair.privateJwk,
-            publicKey: pair.publicJwk,
-            exportedAt: new Date().toISOString()
-        };
-
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'silogu-chat-key-' + currentUser.id.slice(0, 8) + '.json';
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
-        setSocialMsg(keyMsg, '密钥已导出，请妥善保管', 'success');
-    }
-
-    async function importChatKey(file) {
-        if (!currentUser) {
-            goPage('login');
-            return;
-        }
-
-        setSocialMsg(keyMsg, '');
-        try {
-            const data = JSON.parse(await file.text());
-
-            if (!data || data.type !== 'silogu-chat-key' || !data.privateKey || !data.publicKey) {
-                setSocialMsg(keyMsg, '文件不是有效的密钥备份');
-                return;
-            }
-            if (data.uid !== currentUser.id) {
-                setSocialMsg(keyMsg, '这份密钥属于另一个账号，不能导入');
-                return;
-            }
-
-            const pair = await importPairFromJwk(data.privateKey, data.publicKey);
-            localStorage.setItem(storageKeyFor(currentUser.id), JSON.stringify({
-                version: 1,
-                uid: currentUser.id,
-                privateKey: data.privateKey,
-                publicKey: data.publicKey,
-                createdAt: new Date().toISOString()
-            }));
-            localKeyPair = {
-                uid: currentUser.id,
-                privateKey: pair.privateKey,
-                publicKey: pair.publicKey,
-                publicJwk: data.publicKey,
-                privateJwk: data.privateKey
-            };
-            chatKeyCache = {};
-
-            // 导入的密钥同步到账号备份，换设备后也能直接用
-            await backupCloudKey(data.privateKey, data.publicKey);
-            await publishPublicKey();
-            if (activeFriend) await loadMessages();
-
-            setSocialMsg(keyMsg, '密钥已导入', 'success');
-        } catch (err) {
-            setSocialMsg(keyMsg, '导入失败：' + ((err && err.message) || '文件格式不正确'));
-        }
-    }
-
     if (chatBlockBtn) {
         chatBlockBtn.addEventListener('click', blockActiveFriend);
     }
@@ -2196,8 +2217,14 @@
             head.className = 'community-post__head';
 
             const avatar = document.createElement('span');
-            avatar.className = 'friend-avatar';
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = post.author.nickname + ' 的资料';
             fillAvatar(avatar, post.author, post.author.nickname);
+            avatar.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openUserProfile(post.author);
+            });
 
             const meta = document.createElement('div');
             meta.className = 'community-post__meta';
@@ -2418,8 +2445,12 @@
         head.className = 'community-detail__head';
 
         const avatar = document.createElement('span');
-        avatar.className = 'chat-avatar';
+        avatar.className = 'chat-avatar friend-avatar--link';
+        avatar.title = post.author.nickname + ' 的资料';
         fillAvatar(avatar, post.author, post.author.nickname);
+        avatar.addEventListener('click', function () {
+            openUserProfile(post.author);
+        });
 
         const meta = document.createElement('div');
         meta.className = 'community-detail__meta';
@@ -3196,23 +3227,13 @@
         });
     }
 
-    if (keyExportBtn) {
-        keyExportBtn.addEventListener('click', exportChatKey);
-    }
-
-    if (keyImportBtn && keyFileInput) {
-        keyImportBtn.addEventListener('click', function () {
-            keyFileInput.click();
-        });
-        keyFileInput.addEventListener('change', function () {
-            const file = keyFileInput.files && keyFileInput.files[0];
-            keyFileInput.value = '';
-            if (file) importChatKey(file);
-        });
-    }
-
     window.addEventListener('silgu:page', function (e) {
         const name = e.detail && e.detail.name;
+
+        if (name === 'user') {
+            renderUserProfile();
+            return;
+        }
 
         if (name === 'community') {
             loadCommunity();
