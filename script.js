@@ -17,7 +17,6 @@
     const GLOW_STAR_COUNT = 6;    // 带光晕的亮星
     const SHOOTING_STAR_INTERVAL = 5000; // 流星生成间隔
     const FRAME_INTERVAL = 1000 / 30;    // 星空 30 帧足够，省一半 GPU
-    const HEAVY_FRAME_INTERVAL = 1000 / 12; // 好友/资料页降到 12 帧，动画继续但不吃性能
     const GLOW_SPRITE_R = 40;            // 亮星光晕贴图半径
     const TAU = Math.PI * 2;
 
@@ -202,9 +201,8 @@
 
     // 绘制流星
     function createShootingStar() {
-        // 页面不可见时不生成；好友/资料页保留流星但概率降低，避免流星越积越多
+        // 页面不可见时不生成，避免流星越积越多
         if (document.hidden) return;
-        if (heavyPage && Math.random() > 0.35) return;
         if (shootingStars.length > 3) return;
 
         const startX = Math.random() * width * 0.6;
@@ -261,22 +259,14 @@
         }
     }
 
-    // 主循环（30 帧节流，背景动画不需要 60 帧）
+    // 主循环（30 帧节流，背景动画不需要 60 帧，所有页面一致）
     let lastFrame = 0;
-    let heavyPage = ['friends', 'profile'].indexOf(location.hash.slice(1)) >= 0;
-
-    // 好友/资料页元素多，降帧继续画，避免背景和鼠标视差「冻住」
-    window.addEventListener('silgu:page', (e) => {
-        const name = e.detail && e.detail.name;
-        heavyPage = name === 'friends' || name === 'profile';
-    });
 
     function animate(now) {
         requestAnimationFrame(animate);
 
         const time = now || performance.now();
-        const interval = heavyPage ? HEAVY_FRAME_INTERVAL : FRAME_INTERVAL;
-        if (time - lastFrame < interval) return;
+        if (time - lastFrame < FRAME_INTERVAL) return;
         lastFrame = time;
 
         // 标签页不可见时跳过绘制（页面切到后台不烧 CPU）
