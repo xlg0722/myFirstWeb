@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 登录 / 注册 / 会话保持 / 个人资料 / 注销账号 / 下载鉴权
  * 依赖：@supabase/supabase-js CDN、supabase-config.js
  */
@@ -79,6 +79,16 @@
     const keyFileInput = document.getElementById('key-file');
     const keyMsg = document.getElementById('key-msg');
 
+    // 社区
+    const communityForm = document.getElementById('community-form');
+    const communityInput = document.getElementById('community-input');
+    const communityCount = document.getElementById('community-count');
+    const communityMsg = document.getElementById('community-msg');
+    const communityFeed = document.getElementById('community-feed');
+    const communityEmpty = document.getElementById('community-empty');
+    const communityGuest = document.getElementById('community-guest');
+    const communityMain = document.getElementById('community-main');
+
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
     const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -96,6 +106,11 @@
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
     let chatKeyCache = {};       // friend_id -> AES-GCM CryptoKey
     let localKeyPair = null;     // 本机 ECDH 密钥对
+
+    // 社区
+    let communityPosts = [];
+    let communityRequestId = 0;
+    let communityLoadedAt = 0;
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -302,6 +317,7 @@
         await loadProfile(currentUser);
         renderAccount();
         renderProfilePage();
+        renderCommunityState();
 
         // 登录状态变化时重新加载好友数据、重建实时订阅
         const currentId = currentUser ? currentUser.id : null;
@@ -314,6 +330,8 @@
                 publishPublicKey();
             }
             refreshSocial();
+            communityLoadedAt = 0;
+            loadCommunity();
         }
 
         // 退出后仍停在需要登录的页面时回到登录页
@@ -1966,6 +1984,183 @@
         });
     }
 
+    // ===== 社区 =====
+
+    function communityError(err) {
+        const message = (err && err.message) || '';
+        if (/Could not find the table|relation .* does not exist|does not exist|schema cache/i.test(message)) {
+            return '社区还没初始化，请先在 Supabase 执行社区初始化脚本';
+        }
+        return socialError(err);
+    }
+
+    function renderCommunityState() {
+        const loggedIn = !!currentUser;
+        if (communityGuest) communityGuest.hidden = loggedIn;
+        if (communityMain) communityMain.hidden = !loggedIn;
+    }
+
+    function renderCommunityPosts() {
+        if (!communityFeed) return;
+        communityFeed.textContent = '';
+        if (communityEmpty) communityEmpty.hidden = communityPosts.length > 0;
+
+        communityPosts.forEach(function (post) {
+            const item = document.createElement('div');
+            item.className = 'community-post';
+
+            const head = document.createElement('div');
+            head.className = 'community-post__head';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar';
+            fillAvatar(avatar, post.author, post.author.nickname);
+
+            const meta = document.createElement('div');
+            meta.className = 'community-post__meta';
+
+            const name = document.createElement('span');
+            name.className = 'community-post__name';
+            name.textContent = post.author.nickname;
+
+            const time = document.createElement('span');
+            time.className = 'community-post__time';
+            time.textContent = formatMessageTime(post.created_at);
+
+            meta.append(name, time);
+            head.append(avatar, meta);
+
+            const text = document.createElement('p');
+            text.className = 'community-post__text';
+            text.textContent = post.content;
+
+            item.append(head, text);
+            communityFeed.appendChild(item);
+        });
+    }
+
+    async function loadCommunity(force) {
+        renderCommunityState();
+
+        if (!currentUser) {
+            communityPosts = [];
+            renderCommunityPosts();
+            return;
+        }
+        if (!force && communityLoadedAt && Date.now() - communityLoadedAt < 10000) return;
+
+        const reqId = ++communityRequestId;
+
+        const result = await sb
+            .from('community_posts')
+            .select('id, content, created_at, author_id')
+            .order('created_at', { ascending: false })
+            .limit(60);
+
+        if (reqId !== communityRequestId) return;
+
+        if (result.error) {
+            communityPosts = [];
+            renderCommunityPosts();
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        const rows = result.data || [];
+        const authorIds = [];
+        rows.forEach(function (row) {
+            if (row.author_id && authorIds.indexOf(row.author_id) < 0) authorIds.push(row.author_id);
+        });
+
+        let authors = {};
+        if (authorIds.length) {
+            const people = await sb
+                .from('profiles')
+                .select('id, nickname, avatar_url, updated_at')
+                .in('id', authorIds);
+
+            if (reqId !== communityRequestId) return;
+
+            if (!people.error) {
+                (people.data || []).forEach(function (person) {
+                    authors[person.id] = normalizeProfile(person);
+                });
+            }
+        }
+
+        communityPosts = rows.map(function (row) {
+            return {
+                id: row.id,
+                content: row.content,
+                created_at: row.created_at,
+                author: authors[row.author_id] || {
+                    id: row.author_id,
+                    nickname: '玩家',
+                    avatar_url: null,
+                    updated_at: null,
+                    public_key: null
+                }
+            };
+        });
+
+        communityLoadedAt = Date.now();
+        renderCommunityPosts();
+        setSocialMsg(communityMsg, '');
+    }
+
+    function updateCommunityCount() {
+        if (!communityCount || !communityInput) return;
+        communityCount.textContent = communityInput.value.length + '/500';
+    }
+
+    if (communityInput) {
+        communityInput.addEventListener('input', updateCommunityCount);
+    }
+
+    if (communityForm) {
+        communityForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                setSocialMsg(communityMsg, '登录后才能发布消息');
+                return;
+            }
+
+            const text = (communityInput.value || '').trim();
+            if (!text) {
+                setSocialMsg(communityMsg, '先写点什么再发布');
+                return;
+            }
+            if (text.length > 500) {
+                setSocialMsg(communityMsg, '一条消息最多 500 个字');
+                return;
+            }
+
+            const submit = communityForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+            submit.textContent = '发布中…';
+            setSocialMsg(communityMsg, '');
+
+            const result = await sb.from('community_posts').insert({
+                author_id: currentUser.id,
+                content: text
+            });
+
+            submit.disabled = false;
+            submit.textContent = '发布';
+
+            if (result.error) {
+                setSocialMsg(communityMsg, communityError(result.error));
+                return;
+            }
+
+            communityInput.value = '';
+            updateCommunityCount();
+            setSocialMsg(communityMsg, '已发布', 'success');
+            await loadCommunity(true);
+        });
+    }
+
     if (keyExportBtn) {
         keyExportBtn.addEventListener('click', exportChatKey);
     }
@@ -1983,6 +2178,12 @@
 
     window.addEventListener('silgu:page', function (e) {
         const name = e.detail && e.detail.name;
+
+        if (name === 'community') {
+            loadCommunity();
+            return;
+        }
+
         if (name !== 'friends') return;
 
         if (!currentUser) {
