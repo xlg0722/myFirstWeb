@@ -2034,9 +2034,211 @@
             text.className = 'community-post__text';
             text.textContent = post.content;
 
-            item.append(head, text);
+            const actions = document.createElement('div');
+            actions.className = 'community-post__actions';
+
+            const commentBtn = document.createElement('button');
+            commentBtn.type = 'button';
+            commentBtn.className = 'friend-action';
+            commentBtn.textContent = post.comments_count ? '评论 ' + post.comments_count : '评论';
+            actions.appendChild(commentBtn);
+
+            // 只有自己的消息可以删除
+            if (currentUser && post.author_id === currentUser.id) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.type = 'button';
+                deleteBtn.className = 'friend-action community-delete';
+                deleteBtn.textContent = '删除';
+                deleteBtn.addEventListener('click', function () {
+                    deleteCommunityPost(post);
+                });
+                actions.appendChild(deleteBtn);
+            }
+
+            const comments = document.createElement('div');
+            comments.className = 'community-comments';
+            comments.hidden = true;
+
+            const commentList = document.createElement('div');
+            commentList.className = 'community-comments__list';
+
+            const commentForm = document.createElement('form');
+            commentForm.className = 'community-comment-form';
+            commentForm.noValidate = true;
+
+            const commentInput = document.createElement('input');
+            commentInput.type = 'text';
+            commentInput.className = 'field__input community-comment-input';
+            commentInput.maxLength = 300;
+            commentInput.placeholder = '写下你的评论…';
+            commentInput.autocomplete = 'off';
+
+            const commentSend = document.createElement('button');
+            commentSend.type = 'submit';
+            commentSend.className = 'code-send';
+            commentSend.textContent = '发送';
+
+            commentForm.append(commentInput, commentSend);
+            comments.append(commentList, commentForm);
+
+            commentBtn.addEventListener('click', function () {
+                const opening = comments.hidden;
+                comments.hidden = !opening;
+                if (opening) loadCommunityComments(post, commentList);
+            });
+
+            commentForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                sendCommunityComment(post, commentInput, commentSend, commentList, commentBtn);
+            });
+
+            item.append(head, text, actions, comments);
             communityFeed.appendChild(item);
         });
+    }
+
+    // 上海时区当天 0 点对应的 UTC 时间
+    function communityDayStartIso() {
+        const SH_OFFSET = 8 * 3600 * 1000;
+        const nowMs = Date.now();
+        const dayStart = Math.floor((nowMs + SH_OFFSET) / 86400000) * 86400000;
+        return new Date(dayStart - SH_OFFSET).toISOString();
+    }
+
+    // 今天已经发了几条；查询失败返回 null（交给数据库约束兜底）
+    async function countTodayCommunityPosts() {
+        if (!currentUser) return 0;
+        const result = await sb
+            .from('community_posts')
+            .select('id', { count: 'exact', head: true })
+            .eq('author_id', currentUser.id)
+            .gte('created_at', communityDayStartIso());
+
+        if (result.error) return null;
+        return result.count || 0;
+    }
+
+    async function loadCommunityComments(post, list) {
+        if (!list) return;
+        list.textContent = '加载中…';
+
+        const result = await sb
+            .from('community_comments')
+            .select('id, content, created_at, author_id')
+            .eq('post_id', post.id)
+            .order('created_at', { ascending: true })
+            .limit(300);
+
+        if (result.error) {
+            list.textContent = communityError(result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        const authorIds = [];
+        rows.forEach(function (row) {
+            if (row.author_id && authorIds.indexOf(row.author_id) < 0) authorIds.push(row.author_id);
+        });
+
+        let authors = {};
+        if (authorIds.length) {
+            const people = await sb
+                .from('profiles')
+                .select('id, nickname, avatar_url, updated_at')
+                .in('id', authorIds);
+            if (!people.error) {
+                (people.data || []).forEach(function (person) {
+                    authors[person.id] = normalizeProfile(person);
+                });
+            }
+        }
+
+        list.textContent = '';
+
+        if (!rows.length) {
+            const empty = document.createElement('p');
+            empty.className = 'community-comments__empty';
+            empty.textContent = '还没有评论，来说两句吧';
+            list.appendChild(empty);
+            return;
+        }
+
+        rows.forEach(function (row) {
+            const author = authors[row.author_id] || { nickname: '玩家' };
+
+            const item = document.createElement('div');
+            item.className = 'community-comment';
+
+            const head = document.createElement('div');
+            head.className = 'community-comment__head';
+
+            const name = document.createElement('span');
+            name.className = 'community-comment__name';
+            name.textContent = author.nickname;
+
+            const time = document.createElement('span');
+            time.className = 'community-comment__time';
+            time.textContent = formatMessageTime(row.created_at);
+
+            head.append(name, time);
+
+            const text = document.createElement('p');
+            text.className = 'community-comment__text';
+            text.textContent = row.content;
+
+            item.append(head, text);
+            list.appendChild(item);
+        });
+    }
+
+    async function sendCommunityComment(post, input, button, list, countBtn) {
+        if (!currentUser || !input) return;
+
+        const text = (input.value || '').trim();
+        if (!text) return;
+        if (text.length > 300) {
+            setSocialMsg(communityMsg, '一条评论最多 300 个字');
+            return;
+        }
+
+        button.disabled = true;
+
+        const result = await sb.from('community_comments').insert({
+            post_id: post.id,
+            author_id: currentUser.id,
+            content: text
+        });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        input.value = '';
+        post.comments_count = (post.comments_count || 0) + 1;
+        if (countBtn) countBtn.textContent = '评论 ' + post.comments_count;
+        setSocialMsg(communityMsg, '');
+        await loadCommunityComments(post, list);
+    }
+
+    async function deleteCommunityPost(post) {
+        if (!currentUser || !post) return;
+        if (!window.confirm('删除这条消息？下面的评论也会一起删除。')) return;
+
+        const result = await sb
+            .from('community_posts')
+            .delete()
+            .eq('id', post.id);
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        setSocialMsg(communityMsg, '已删除', 'success');
+        await loadCommunity(true);
     }
 
     async function loadCommunity(force) {
@@ -2068,31 +2270,46 @@
 
         const rows = result.data || [];
         const authorIds = [];
+        const postIds = [];
         rows.forEach(function (row) {
+            postIds.push(row.id);
             if (row.author_id && authorIds.indexOf(row.author_id) < 0) authorIds.push(row.author_id);
         });
 
+        const peoplePromise = authorIds.length
+            ? sb.from('profiles').select('id, nickname, avatar_url, updated_at').in('id', authorIds)
+            : Promise.resolve({ data: [], error: null });
+
+        // 评论数按 post_id 统计（只取 post_id 字段，数据量很小）
+        const commentsPromise = postIds.length
+            ? sb.from('community_comments').select('post_id').in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const results = await Promise.all([peoplePromise, commentsPromise]);
+
+        if (reqId !== communityRequestId) return;
+
         let authors = {};
-        if (authorIds.length) {
-            const people = await sb
-                .from('profiles')
-                .select('id, nickname, avatar_url, updated_at')
-                .in('id', authorIds);
+        if (!results[0].error) {
+            (results[0].data || []).forEach(function (person) {
+                authors[person.id] = normalizeProfile(person);
+            });
+        }
 
-            if (reqId !== communityRequestId) return;
-
-            if (!people.error) {
-                (people.data || []).forEach(function (person) {
-                    authors[person.id] = normalizeProfile(person);
-                });
-            }
+        let commentCounts = {};
+        if (!results[1].error) {
+            (results[1].data || []).forEach(function (comment) {
+                commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1;
+            });
         }
 
         communityPosts = rows.map(function (row) {
             return {
                 id: row.id,
+                author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
+                comments_count: commentCounts[row.id] || 0,
                 author: authors[row.author_id] || {
                     id: row.author_id,
                     nickname: '玩家',
@@ -2140,6 +2357,15 @@
             submit.disabled = true;
             submit.textContent = '发布中…';
             setSocialMsg(communityMsg, '');
+
+            // 每天最多 10 条，前端先查一次给出友好提示，数据库策略再兜底
+            const todayCount = await countTodayCommunityPosts();
+            if (todayCount !== null && todayCount >= 10) {
+                submit.disabled = false;
+                submit.textContent = '发布';
+                setSocialMsg(communityMsg, '每人每天最多发 10 条，明天再来吧');
+                return;
+            }
 
             const result = await sb.from('community_posts').insert({
                 author_id: currentUser.id,
