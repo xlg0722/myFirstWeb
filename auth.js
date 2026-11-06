@@ -70,6 +70,14 @@
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const chatMsg = document.getElementById('chat-msg');
+    const chatBlockBtn = document.getElementById('chat-block');
+    const chatReportBtn = document.getElementById('chat-report');
+    const blockedWrap = document.getElementById('blocked-wrap');
+    const blockedListBox = document.getElementById('blocked-list');
+    const keyExportBtn = document.getElementById('key-export');
+    const keyImportBtn = document.getElementById('key-import');
+    const keyFileInput = document.getElementById('key-file');
+    const keyMsg = document.getElementById('key-msg');
 
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
@@ -85,6 +93,9 @@
     let activeFriend = null;
     let unreadByFriend = {};     // friend_id -> 未读条数
     let realtimeChannel = null;
+    let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
+    let chatKeyCache = {};       // friend_id -> AES-GCM CryptoKey
+    let localKeyPair = null;     // 本机 ECDH 密钥对
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -249,7 +260,7 @@
         try {
             const result = await sb
                 .from('profiles')
-                .select('nickname, avatar_url, updated_at')
+                .select('nickname, avatar_url, updated_at, public_key')
                 .eq('id', user.id)
                 .maybeSingle();
 
@@ -265,19 +276,21 @@
             const inserted = await sb
                 .from('profiles')
                 .insert({ id: user.id, nickname: nickname })
-                .select('nickname, avatar_url, updated_at')
+                .select('nickname, avatar_url, updated_at, public_key')
                 .maybeSingle();
 
             currentProfile = inserted.data || {
                 nickname: nickname,
                 avatar_url: null,
-                updated_at: null
+                updated_at: null,
+                public_key: null
             };
         } catch (err) {
             currentProfile = {
                 nickname: displayNameOf(user),
                 avatar_url: null,
-                updated_at: null
+                updated_at: null,
+                public_key: null
             };
             console.warn('读取个人资料失败：', err);
         }
@@ -294,7 +307,12 @@
         const currentId = currentUser ? currentUser.id : null;
         if (currentId !== previousId) {
             stopRealtime();
-            if (currentId) startRealtime();
+            chatKeyCache = {};
+            localKeyPair = null;
+            if (currentId) {
+                startRealtime();
+                publishPublicKey();
+            }
             refreshSocial();
         }
 
@@ -518,7 +536,7 @@
             const result = await sb
                 .from('profiles')
                 .upsert({ id: currentUser.id, nickname: nickname }, { onConflict: 'id' })
-                .select('nickname, avatar_url, updated_at')
+                .select('nickname, avatar_url, updated_at, public_key')
                 .maybeSingle();
 
             submit.disabled = false;
@@ -535,7 +553,8 @@
                 currentProfile = {
                     nickname: nickname,
                     avatar_url: currentProfile ? currentProfile.avatar_url : null,
-                    updated_at: new Date().toISOString()
+                    updated_at: new Date().toISOString(),
+                    public_key: currentProfile ? currentProfile.public_key : null
                 };
             }
 
@@ -596,7 +615,7 @@
                     { id: currentUser.id, nickname: nicknameOf(), avatar_url: publicUrl },
                     { onConflict: 'id' }
                 )
-                .select('nickname, avatar_url, updated_at')
+                .select('nickname, avatar_url, updated_at, public_key')
                 .maybeSingle();
 
             avatarButton.disabled = false;
@@ -715,15 +734,167 @@
             id: p.id,
             nickname: p.nickname || '玩家',
             avatar_url: p.avatar_url || null,
-            updated_at: p.updated_at || null
+            updated_at: p.updated_at || null,
+            public_key: p.public_key || null
         };
+    }
+
+    // ===== 端到端加密（ECDH P-256 + HKDF + AES-GCM） =====
+    const CHAT_KEY_STORAGE = 'silogu-chat-key-v1';
+    const CHAT_ENC_ALGO = 'ecdh-p256-aesgcm-v1';
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+
+    function storageKeyFor(uid) {
+        return CHAT_KEY_STORAGE + ':' + uid;
+    }
+
+    function bytesToBase64(bytes) {
+        let binary = '';
+        const arr = new Uint8Array(bytes);
+        for (let i = 0; i < arr.length; i += 1) binary += String.fromCharCode(arr[i]);
+        return btoa(binary);
+    }
+
+    function base64ToBytes(value) {
+        const binary = atob(value);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+    }
+
+    function cryptoAvailable() {
+        return !!(window.crypto && window.crypto.subtle && window.isSecureContext);
+    }
+
+    async function importPairFromJwk(privateJwk, publicJwk) {
+        const privateKey = await crypto.subtle.importKey(
+            'jwk', privateJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']
+        );
+        const publicKey = await crypto.subtle.importKey(
+            'jwk', publicJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, []
+        );
+        return { privateKey: privateKey, publicKey: publicKey, publicJwk: publicJwk, privateJwk: privateJwk };
+    }
+
+    async function ensureLocalKeyPair() {
+        if (!currentUser) return null;
+        if (localKeyPair && localKeyPair.uid === currentUser.id) return localKeyPair;
+        if (!cryptoAvailable()) return null;
+
+        try {
+            const raw = localStorage.getItem(storageKeyFor(currentUser.id));
+            if (raw) {
+                const saved = JSON.parse(raw);
+                if (saved && saved.privateKey && saved.publicKey) {
+                    const imported = await importPairFromJwk(saved.privateKey, saved.publicKey);
+                    localKeyPair = {
+                        uid: currentUser.id,
+                        privateKey: imported.privateKey,
+                        publicKey: imported.publicKey,
+                        publicJwk: saved.publicKey,
+                        privateJwk: saved.privateKey
+                    };
+                    return localKeyPair;
+                }
+            }
+        } catch (err) {
+            console.warn('读取本机密钥失败：', err);
+        }
+
+        const generated = await crypto.subtle.generateKey(
+            { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']
+        );
+        const privateJwk = await crypto.subtle.exportKey('jwk', generated.privateKey);
+        const publicJwk = await crypto.subtle.exportKey('jwk', generated.publicKey);
+
+        localStorage.setItem(storageKeyFor(currentUser.id), JSON.stringify({
+            version: 1,
+            uid: currentUser.id,
+            privateKey: privateJwk,
+            publicKey: publicJwk,
+            createdAt: new Date().toISOString()
+        }));
+
+        localKeyPair = {
+            uid: currentUser.id,
+            privateKey: generated.privateKey,
+            publicKey: generated.publicKey,
+            publicJwk: publicJwk,
+            privateJwk: privateJwk
+        };
+        return localKeyPair;
+    }
+
+    async function publishPublicKey() {
+        if (!currentUser) return;
+        const pair = await ensureLocalKeyPair();
+        if (!pair) return;
+
+        const keyText = JSON.stringify(pair.publicJwk);
+        if (currentProfile && currentProfile.public_key === keyText) return;
+
+        const result = await sb.from('profiles')
+            .update({ public_key: keyText })
+            .eq('id', currentUser.id);
+
+        if (result.error) {
+            console.warn('上传公钥失败：', result.error);
+            return;
+        }
+        if (currentProfile) currentProfile.public_key = keyText;
+    }
+
+    async function deriveChatKey(friend) {
+        if (!currentUser || !friend) throw new Error('未登录');
+        if (!cryptoAvailable()) throw new Error('当前环境不支持加密聊天，请用 HTTPS 打开本站');
+        if (!friend.public_key) throw new Error('对方还没有启用加密聊天，请让对方先打开一次「好友」页');
+
+        if (chatKeyCache[friend.id]) return chatKeyCache[friend.id];
+
+        const pair = await ensureLocalKeyPair();
+        if (!pair) throw new Error('无法初始化本机密钥');
+
+        const friendPublic = await crypto.subtle.importKey(
+            'jwk', JSON.parse(friend.public_key), { name: 'ECDH', namedCurve: 'P-256' }, true, []
+        );
+        const sharedBits = await crypto.subtle.deriveBits(
+            { name: 'ECDH', public: friendPublic }, pair.privateKey, 256
+        );
+        const hkdfKey = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
+        const salt = textEncoder.encode([currentUser.id, friend.id].sort().join(':'));
+        const aesKey = await crypto.subtle.deriveKey(
+            { name: 'HKDF', hash: 'SHA-256', salt: salt, info: textEncoder.encode('silogu-chat-v1') },
+            hkdfKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+
+        chatKeyCache[friend.id] = aesKey;
+        return aesKey;
+    }
+
+    async function encryptMessage(key, plainText) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const cipher = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv }, key, textEncoder.encode(plainText)
+        );
+        return 'v1:' + bytesToBase64(iv) + ':' + bytesToBase64(new Uint8Array(cipher));
+    }
+
+    async function decryptMessage(key, payload) {
+        const parts = String(payload).split(':');
+        if (parts.length !== 3 || parts[0] !== 'v1') throw new Error('未知的密文格式');
+        const iv = base64ToBytes(parts[1]);
+        const cipher = base64ToBytes(parts[2]);
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipher);
+        return textDecoder.decode(plain);
     }
 
     function renderBadge() {
         if (!friendsBadge) return;
         let total = pendingRequests.length;
         Object.keys(unreadByFriend).forEach(function (key) {
-            total += unreadByFriend[key];
+            const isFriend = friends.some(function (f) { return f.id === key; });
+            if (isFriend) total += unreadByFriend[key];
         });
         friendsBadge.textContent = total > 99 ? '99+' : String(total);
         friendsBadge.hidden = !currentUser || total === 0;
@@ -818,7 +989,7 @@
 
             const name = document.createElement('span');
             name.className = 'friend-name';
-            name.textContent = person.nickname;
+            name.textContent = person.emailMatch ? '邮箱匹配的用户（添加后可见昵称）' : person.nickname;
 
             const action = document.createElement('button');
             action.type = 'button';
@@ -871,13 +1042,16 @@
         }
 
         const prof = await sb.from('profiles')
-            .select('id, nickname, avatar_url, updated_at')
+            .select('id, nickname, avatar_url, updated_at, public_key')
             .in('id', ids);
 
         if (prof.error) console.warn('读取好友资料失败：', prof.error);
 
         const map = {};
         (prof.data || []).forEach(function (p) { map[p.id] = p; });
+
+        // 对方换了密钥设备时，旧缓存会解不开，这里统一清空重新派生
+        chatKeyCache = {};
 
         friends = ids.map(function (id) {
             return normalizeProfile(map[id] || { id: id });
@@ -891,6 +1065,7 @@
         }
 
         renderFriends();
+        renderBadge();
     }
 
     async function loadRequests() {
@@ -978,6 +1153,53 @@
         renderFriends();
     }
 
+    async function loadBlocked() {
+        blockedUsers = [];
+        if (!currentUser) {
+            renderBlocked();
+            return;
+        }
+
+        const result = await sb.rpc('list_blocked_users');
+        if (result.error) {
+            console.warn('读取黑名单失败：', result.error);
+            renderBlocked();
+            return;
+        }
+
+        blockedUsers = (result.data || []).map(normalizeProfile);
+        renderBlocked();
+    }
+
+    function renderBlocked() {
+        if (!blockedListBox) return;
+        blockedListBox.textContent = '';
+        if (blockedWrap) blockedWrap.hidden = blockedUsers.length === 0;
+
+        blockedUsers.forEach(function (person) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar';
+            fillAvatar(avatar, person, person.nickname);
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = person.nickname;
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'friend-action';
+            button.dataset.action = 'unblock-user';
+            button.dataset.userId = person.id;
+            button.textContent = '解除拉黑';
+
+            row.append(avatar, name, button);
+            blockedListBox.appendChild(row);
+        });
+    }
+
     async function refreshSocial() {
         if (!currentUser) {
             friends = [];
@@ -985,15 +1207,17 @@
             pendingOutgoing = {};
             searchResults = [];
             unreadByFriend = {};
+            blockedUsers = [];
             renderFriends();
             renderRequests();
             renderSearchResults();
+            renderBlocked();
             renderBadge();
             closeChat();
             return;
         }
 
-        await Promise.all([loadFriends(), loadRequests(), loadUnread()]);
+        await Promise.all([loadFriends(), loadRequests(), loadUnread(), loadBlocked()]);
     }
 
     function stopRealtime() {
@@ -1059,18 +1283,42 @@
         if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
     }
 
-    function renderMessages(list) {
+    async function renderMessages(list) {
         if (!chatMessagesBox) return;
         chatMessagesBox.textContent = '';
         if (chatEmpty) chatEmpty.hidden = list.length > 0;
 
-        list.forEach(function (m) {
+        let aesKey = null;
+        if (activeFriend) {
+            try {
+                aesKey = await deriveChatKey(activeFriend);
+            } catch (err) {
+                console.warn('派生聊天密钥失败：', err.message);
+            }
+        }
+
+        for (let i = 0; i < list.length; i += 1) {
+            const m = list[i];
+            let text = m.content;
+
+            if (m.enc_algo) {
+                if (!aesKey) {
+                    text = '（无法解密：缺少聊天密钥）';
+                } else {
+                    try {
+                        text = await decryptMessage(aesKey, m.content);
+                    } catch (err) {
+                        text = '（无法解密：密钥不匹配）';
+                    }
+                }
+            }
+
             const row = document.createElement('div');
             row.className = 'chat-row' + (m.sender_id === currentUser.id ? ' chat-row--mine' : '');
 
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble';
-            bubble.textContent = m.content;
+            bubble.textContent = text;
 
             const time = document.createElement('span');
             time.className = 'chat-time';
@@ -1078,7 +1326,7 @@
 
             row.append(bubble, time);
             chatMessagesBox.appendChild(row);
-        });
+        }
 
         scrollChatToBottom();
     }
@@ -1092,7 +1340,7 @@
             ',and(sender_id.eq.' + other + ',receiver_id.eq.' + me + ')';
 
         const result = await sb.from('messages')
-            .select('id, sender_id, receiver_id, content, created_at')
+            .select('id, sender_id, receiver_id, content, created_at, enc_algo')
             .or(filter)
             .order('created_at', { ascending: false })
             .limit(200);
@@ -1104,7 +1352,7 @@
 
         setSocialMsg(chatMsg, '');
         // 取最近 200 条后再正序展示
-        renderMessages((result.data || []).slice().reverse());
+        await renderMessages((result.data || []).slice().reverse());
     }
 
     async function markChatRead() {
@@ -1129,6 +1377,9 @@
         if (chatMessagesBox) chatMessagesBox.textContent = '';
         if (chatEmpty) chatEmpty.hidden = true;
         setSocialMsg(chatMsg, '');
+        if (!friend.public_key) {
+            setSocialMsg(chatMsg, '对方还没启用加密聊天，暂时发不出消息；让对方打开一次「好友」页即可');
+        }
         if (chatInput) chatInput.value = '';
 
         markChatRead().then(loadMessages).then(function () {
@@ -1211,12 +1462,19 @@
                     setSocialMsg(friendSearchMsg, '搜索失败：' + socialError(result.error));
                     return;
                 }
-                rows = result.data || [];
+                // 邮箱只返回账号 id，昵称和头像在加好友后才可见
+                rows = (result.data || []).map(function (row) {
+                    return {
+                        id: row.id,
+                        nickname: '邮箱匹配的用户',
+                        avatar_url: null,
+                        updated_at: null,
+                        public_key: null,
+                        emailMatch: true
+                    };
+                });
             } else {
-                const result = await sb.from('profiles')
-                    .select('id, nickname, avatar_url, updated_at')
-                    .ilike('nickname', '%' + query + '%')
-                    .limit(20);
+                const result = await sb.rpc('search_users', { p_query: query });
 
                 if (result.error) {
                     submit.disabled = false;
@@ -1230,7 +1488,11 @@
             submit.disabled = false;
             submit.textContent = '搜索';
 
-            searchResults = rows.map(normalizeProfile);
+            searchResults = rows.map(function (row) {
+                const person = normalizeProfile(row);
+                person.emailMatch = !!row.emailMatch;
+                return person;
+            });
             renderSearchResults();
 
             if (!searchResults.length) {
@@ -1318,13 +1580,31 @@
                 return;
             }
 
+            let aesKey;
+            try {
+                aesKey = await deriveChatKey(activeFriend);
+            } catch (err) {
+                setSocialMsg(chatMsg, '发送失败：' + err.message);
+                return;
+            }
+
             const submit = chatForm.querySelector('button[type="submit"]');
             submit.disabled = true;
+
+            let cipherText;
+            try {
+                cipherText = await encryptMessage(aesKey, text);
+            } catch (err) {
+                submit.disabled = false;
+                setSocialMsg(chatMsg, '加密失败：' + (err.message || '当前浏览器不支持'));
+                return;
+            }
 
             const result = await sb.from('messages').insert({
                 sender_id: currentUser.id,
                 receiver_id: activeFriend.id,
-                content: text
+                content: cipherText,
+                enc_algo: CHAT_ENC_ALGO
             });
 
             submit.disabled = false;
@@ -1349,6 +1629,175 @@
                     chatForm.querySelector('button[type="submit"]').click();
                 }
             }
+        });
+    }
+
+    async function blockActiveFriend() {
+        if (!currentUser || !activeFriend) return;
+
+        const name = activeFriend.nickname;
+        if (!window.confirm('确定拉黑「' + name + '」吗？拉黑后双方不能再发消息，好友关系会解除。')) return;
+
+        chatBlockBtn.disabled = true;
+        const result = await sb.rpc('block_user', { p_target: activeFriend.id });
+        chatBlockBtn.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '拉黑失败：' + socialError(result.error));
+            return;
+        }
+
+        chatKeyCache = {};
+        closeChat();
+        await refreshSocial();
+        setSocialMsg(friendSearchMsg, '已拉黑「' + name + '」', 'success');
+    }
+
+    async function reportActiveFriend() {
+        if (!currentUser || !activeFriend) return;
+
+        const name = activeFriend.nickname;
+        const input = window.prompt('举报「' + name + '」，请填写理由（最多 500 字）');
+        if (input === null) return;
+
+        const reason = input.trim();
+        if (!reason) {
+            setSocialMsg(chatMsg, '举报理由不能为空');
+            return;
+        }
+        if (reason.length > 500) {
+            setSocialMsg(chatMsg, '举报理由最多 500 字');
+            return;
+        }
+
+        chatReportBtn.disabled = true;
+        const result = await sb.rpc('report_user', { p_target: activeFriend.id, p_reason: reason });
+        chatReportBtn.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '举报失败：' + socialError(result.error));
+            return;
+        }
+        setSocialMsg(chatMsg, '举报已提交，我们会尽快处理', 'success');
+    }
+
+    async function exportChatKey() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        setSocialMsg(keyMsg, '');
+        const pair = await ensureLocalKeyPair();
+        if (!pair || !pair.privateJwk) {
+            setSocialMsg(keyMsg, '当前环境不支持导出密钥');
+            return;
+        }
+
+        const payload = {
+            type: 'silogu-chat-key',
+            version: 1,
+            uid: currentUser.id,
+            privateKey: pair.privateJwk,
+            publicKey: pair.publicJwk,
+            exportedAt: new Date().toISOString()
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'silogu-chat-key-' + currentUser.id.slice(0, 8) + '.json';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
+        setSocialMsg(keyMsg, '密钥已导出，请妥善保管', 'success');
+    }
+
+    async function importChatKey(file) {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        setSocialMsg(keyMsg, '');
+        try {
+            const data = JSON.parse(await file.text());
+
+            if (!data || data.type !== 'silogu-chat-key' || !data.privateKey || !data.publicKey) {
+                setSocialMsg(keyMsg, '文件不是有效的密钥备份');
+                return;
+            }
+            if (data.uid !== currentUser.id) {
+                setSocialMsg(keyMsg, '这份密钥属于另一个账号，不能导入');
+                return;
+            }
+
+            const pair = await importPairFromJwk(data.privateKey, data.publicKey);
+            localStorage.setItem(storageKeyFor(currentUser.id), JSON.stringify({
+                version: 1,
+                uid: currentUser.id,
+                privateKey: data.privateKey,
+                publicKey: data.publicKey,
+                createdAt: new Date().toISOString()
+            }));
+            localKeyPair = {
+                uid: currentUser.id,
+                privateKey: pair.privateKey,
+                publicKey: pair.publicKey,
+                publicJwk: data.publicKey,
+                privateJwk: data.privateKey
+            };
+            chatKeyCache = {};
+
+            await publishPublicKey();
+            if (activeFriend) await loadMessages();
+
+            setSocialMsg(keyMsg, '密钥已导入', 'success');
+        } catch (err) {
+            setSocialMsg(keyMsg, '导入失败：' + ((err && err.message) || '文件格式不正确'));
+        }
+    }
+
+    if (chatBlockBtn) {
+        chatBlockBtn.addEventListener('click', blockActiveFriend);
+    }
+
+    if (chatReportBtn) {
+        chatReportBtn.addEventListener('click', reportActiveFriend);
+    }
+
+    if (blockedListBox) {
+        blockedListBox.addEventListener('click', async function (e) {
+            const button = e.target.closest('[data-action="unblock-user"]');
+            if (!button) return;
+
+            button.disabled = true;
+            const result = await sb.rpc('unblock_user', { p_target: button.dataset.userId });
+            if (result.error) {
+                button.disabled = false;
+                setSocialMsg(friendSearchMsg, '解除拉黑失败：' + socialError(result.error));
+                return;
+            }
+
+            await loadBlocked();
+            setSocialMsg(friendSearchMsg, '已解除拉黑，对方需要重新加好友', 'success');
+        });
+    }
+
+    if (keyExportBtn) {
+        keyExportBtn.addEventListener('click', exportChatKey);
+    }
+
+    if (keyImportBtn && keyFileInput) {
+        keyImportBtn.addEventListener('click', function () {
+            keyFileInput.click();
+        });
+        keyFileInput.addEventListener('change', function () {
+            const file = keyFileInput.files && keyFileInput.files[0];
+            keyFileInput.value = '';
+            if (file) importChatKey(file);
         });
     }
 

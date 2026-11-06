@@ -935,12 +935,26 @@ button.friend-item:focus-visible {
 
 .chat-name {
     min-width: 0;
+    flex: 1 1 auto;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 18px;
     font-weight: 600;
     color: #eef3ff;
+}
+
+.chat-head__actions {
+    display: flex;
+    flex: none;
+    gap: 6px;
+}
+
+.key-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .chat-scroll {

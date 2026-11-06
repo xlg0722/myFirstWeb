@@ -214,6 +214,22 @@
                     <div class="friend-list" id="friends-list"></div>
                     <p class="friends-empty" id="friends-empty">还没有好友，用昵称或邮箱搜索添加吧</p>
                 </div>
+
+                <div class="friend-section" id="blocked-wrap" hidden>
+                    <h3 class="section-title">黑名单</h3>
+                    <div class="friend-list" id="blocked-list"></div>
+                </div>
+
+                <div class="friend-section">
+                    <h3 class="section-title">聊天密钥</h3>
+                    <p class="friends-empty">聊天内容在本机加密后才上传，服务器只能看到密文。清除浏览器数据或换设备前，请先导出密钥备份，否则旧消息无法恢复。</p>
+                    <div class="key-actions">
+                        <button class="friend-action" type="button" id="key-export">导出密钥</button>
+                        <button class="friend-action" type="button" id="key-import">导入密钥</button>
+                        <input type="file" id="key-file" accept="application/json" hidden>
+                    </div>
+                    <p class="auth-msg" id="key-msg" role="alert"></p>
+                </div>
             </div>
 
             <div id="chat-view" hidden>
@@ -221,6 +237,10 @@
                 <div class="chat-head">
                     <span class="chat-avatar" id="chat-avatar"></span>
                     <span class="chat-name" id="chat-name"></span>
+                    <span class="chat-head__actions">
+                        <button class="friend-action" type="button" id="chat-report">举报</button>
+                        <button class="friend-action" type="button" id="chat-block">拉黑</button>
+                    </span>
                 </div>
                 <div class="chat-scroll" id="chat-scroll">
                     <div class="chat-messages" id="chat-messages"></div>
