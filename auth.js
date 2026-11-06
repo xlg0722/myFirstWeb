@@ -3031,3 +3031,248 @@
                 name.textContent = mediaName(file);
 
                 const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'media-chip__remove';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', '移除');
+                remove.addEventListener('click', function () {
+                    communityFiles.splice(index, 1);
+                    renderCommunityAttach();
+                });
+
+                chip.append(name, remove);
+                communityAttachList.appendChild(chip);
+            });
+        }
+
+        if (communityAttachName) {
+            communityAttachName.textContent = communityFiles.length
+                ? '已选 ' + communityFiles.length + ' / 9'
+                : '最多选 9 个';
+        }
+    }
+
+    function setCommunityFiles(files) {
+        communityFiles = files.slice(0, 9);
+        renderCommunityAttach();
+    }
+
+    if (communityAttachBtn && communityFileInput) {
+        communityAttachBtn.addEventListener('click', function () {
+            communityFileInput.click();
+        });
+
+        communityFileInput.addEventListener('change', function () {
+            const picked = Array.prototype.slice.call(communityFileInput.files || []);
+            communityFileInput.value = '';
+            if (!picked.length) return;
+
+            const accepted = [];
+            for (let i = 0; i < picked.length; i += 1) {
+                const file = picked[i];
+                if (!mediaKind(file)) {
+                    setSocialMsg(communityMsg, '只支持图片或视频');
+                    return;
+                }
+                if (file.size > MEDIA_MAX_SIZE) {
+                    setSocialMsg(communityMsg, '单个文件不能超过 25MB');
+                    return;
+                }
+                accepted.push(file);
+            }
+
+            const room = 9 - communityFiles.length;
+            if (accepted.length > room) {
+                setSocialMsg(communityMsg, '最多选 9 个，多出的没有加入');
+            } else {
+                setSocialMsg(communityMsg, '');
+            }
+
+            setCommunityFiles(communityFiles.concat(accepted.slice(0, room)));
+        });
+    }
+
+    if (communitySortSelect) {
+        communitySortSelect.addEventListener('change', function () {
+            communitySort = communitySortSelect.value;
+            renderCommunityPosts();
+        });
+    }
+
+    if (communityBookmarkFilter) {
+        communityBookmarkFilter.addEventListener('click', function () {
+            communityBookmarkOnly = !communityBookmarkOnly;
+            communityBookmarkFilter.classList.toggle('is-active', communityBookmarkOnly);
+            communityBookmarkFilter.setAttribute('aria-pressed', communityBookmarkOnly ? 'true' : 'false');
+            if (communityFeed) communityFeed.scrollTop = 0;
+            renderCommunityPosts();
+        });
+    }
+
+    if (communityMoreBtn) {
+        communityMoreBtn.addEventListener('click', function () {
+            loadCommunity(false, true);
+        });
+    }
+
+    // 列表滚到接近底部时自动加载下一页
+    if (communityFeed) {
+        communityFeed.addEventListener('scroll', function () {
+            if (!communityHasMore || communityLoadingMore) return;
+            if (communityFeed.scrollTop + communityFeed.clientHeight >= communityFeed.scrollHeight - 160) {
+                loadCommunity(false, true);
+            }
+        });
+    }
+
+    if (communityForm) {
+        communityForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                setSocialMsg(communityMsg, '登录后才能发布消息');
+                return;
+            }
+
+            const text = (communityInput.value || '').trim();
+            if (!text && !communityFiles.length) {
+                setSocialMsg(communityMsg, '写点什么，或选几张图片/视频');
+                return;
+            }
+            if (text.length > 500) {
+                setSocialMsg(communityMsg, '一条消息最多 500 个字');
+                return;
+            }
+
+            const submit = communityForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+            submit.textContent = '发布中…';
+            setSocialMsg(communityMsg, '');
+
+            // 每天最多 10 条，前端先查一次给出友好提示，数据库策略再兜底
+            const todayCount = await countTodayCommunityPosts();
+            if (todayCount !== null && todayCount >= 10) {
+                submit.disabled = false;
+                submit.textContent = '发布';
+                setSocialMsg(communityMsg, '每人每天最多发 10 条，明天再来吧');
+                return;
+            }
+
+            let media = [];
+            if (communityFiles.length) {
+                submit.textContent = '上传中…';
+                try {
+                    for (let i = 0; i < communityFiles.length; i += 1) {
+                        media.push(await uploadMediaFile(communityFiles[i], 'community'));
+                    }
+                } catch (err) {
+                    submit.disabled = false;
+                    submit.textContent = '发布';
+                    setSocialMsg(communityMsg, '媒体上传失败：' + translateError(err.message || ''));
+                    return;
+                }
+                submit.textContent = '发布中…';
+            }
+
+            const result = await sb.from('community_posts').insert({
+                author_id: currentUser.id,
+                content: text,
+                media: media
+            });
+
+            submit.disabled = false;
+            submit.textContent = '发布';
+
+            if (result.error) {
+                setSocialMsg(communityMsg, communityError(result.error));
+                return;
+            }
+
+            communityInput.value = '';
+            updateCommunityCount();
+            setCommunityFiles([]);
+            setSocialMsg(communityMsg, '已发布', 'success');
+            await loadCommunity(true);
+        });
+    }
+
+    if (keyExportBtn) {
+        keyExportBtn.addEventListener('click', exportChatKey);
+    }
+
+    if (keyImportBtn && keyFileInput) {
+        keyImportBtn.addEventListener('click', function () {
+            keyFileInput.click();
+        });
+        keyFileInput.addEventListener('change', function () {
+            const file = keyFileInput.files && keyFileInput.files[0];
+            keyFileInput.value = '';
+            if (file) importChatKey(file);
+        });
+    }
+
+    window.addEventListener('silgu:page', function (e) {
+        const name = e.detail && e.detail.name;
+
+        if (name === 'community') {
+            loadCommunity();
+            return;
+        }
+
+        if (name !== 'friends') return;
+
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        // 已经在刷新，或 15 秒内刚刷新过，就不再重复打一轮接口
+        if (socialRefreshing) return;
+        if (socialLoadedAt && Date.now() - socialLoadedAt < 15000) return;
+
+        refreshSocial();
+    });
+
+    sb.auth.onAuthStateChange(function () {
+        // 回调里直接调用其它 supabase 方法可能死锁，延后到当前事件结束
+        setTimeout(function () {
+            sb.auth.getSession().then(function (result) {
+                syncUser(result.data.session ? result.data.session.user : null);
+            });
+        }, 0);
+    });
+
+    sb.auth.getSession().then(function (result) {
+        syncUser(result.data.session ? result.data.session.user : null);
+    });
+
+    if (downloadButton) {
+        downloadButton.addEventListener('click', async function () {
+            if (downloadMsg) downloadMsg.textContent = '';
+
+            const sessionResult = await sb.auth.getSession();
+            if (!sessionResult.data.session) {
+                if (downloadMsg) downloadMsg.textContent = '请先登录再下载';
+                goPage('login');
+                return;
+            }
+
+            downloadButton.disabled = true;
+
+            const result = await sb.storage
+                .from(cfg.bucket)
+                .createSignedUrl(cfg.fileName, 120);
+
+            downloadButton.disabled = false;
+
+            if (result.error) {
+                if (downloadMsg) {
+                    downloadMsg.textContent = '下载失败：' + translateError(result.error.message);
+                }
+                return;
+            }
+
+            window.location.href = result.data.signedUrl;
+        });
+    }
+})();
