@@ -98,7 +98,8 @@
     const communityAttachBtn = document.getElementById('community-attach');
     const communityFileInput = document.getElementById('community-file');
     const communityAttachName = document.getElementById('community-attach-name');
-    const communityAttachClear = document.getElementById('community-attach-clear');
+    const communityAttachList = document.getElementById('community-attach-list');
+    const communitySortSelect = document.getElementById('community-sort');
 
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
@@ -128,7 +129,8 @@
     let communityRequestId = 0;
     let communityLoadedAt = 0;
     let activeCommunityPostId = null;
-    let communityFile = null;
+    let communityFiles = [];     // 待发布的图片/视频（最多 9 个）
+    let communitySort = 'new';   // new / old / hot / cold
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -2083,12 +2085,44 @@
         if (communityMain) communityMain.hidden = !loggedIn;
     }
 
+    function communityMediaLabel(media) {
+        if (!media || !media.length) return '';
+        if (media.length > 1) return '[媒体 ' + media.length + ']';
+        return media[0].type === 'video' ? '[视频]' : '[图片]';
+    }
+
+    // 按当前选择的排序方式返回副本，不改动原始数组
+    function sortCommunityPosts() {
+        const list = communityPosts.slice();
+        const timeOf = function (post) {
+            return new Date(post.created_at).getTime() || 0;
+        };
+        const likesOf = function (post) {
+            return post.likes_count || 0;
+        };
+
+        if (communitySort === 'old') {
+            list.sort(function (a, b) { return timeOf(a) - timeOf(b); });
+        } else if (communitySort === 'hot') {
+            list.sort(function (a, b) {
+                return likesOf(b) - likesOf(a) || timeOf(b) - timeOf(a);
+            });
+        } else if (communitySort === 'cold') {
+            list.sort(function (a, b) {
+                return likesOf(a) - likesOf(b) || timeOf(b) - timeOf(a);
+            });
+        } else {
+            list.sort(function (a, b) { return timeOf(b) - timeOf(a); });
+        }
+        return list;
+    }
+
     function renderCommunityPosts() {
         if (!communityFeed) return;
         communityFeed.textContent = '';
         if (communityEmpty) communityEmpty.hidden = communityPosts.length > 0;
 
-        communityPosts.forEach(function (post) {
+        sortCommunityPosts().forEach(function (post) {
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'community-post community-post--compact';
@@ -2115,9 +2149,7 @@
             // 列表里只显示一行预览，超出用省略号
             const preview = document.createElement('p');
             preview.className = 'community-post__preview';
-            const mediaLabel = post.media_type === 'video'
-                ? '[视频]'
-                : (post.media_type === 'image' ? '[图片]' : '');
+            const mediaLabel = communityMediaLabel(post.media);
             preview.textContent = (mediaLabel ? mediaLabel + ' ' : '') + (post.content || '');
 
             item.append(head, preview);
@@ -2136,6 +2168,141 @@
             communityDetailBody.hidden = true;
         }
         if (communityDetailEmpty) communityDetailEmpty.hidden = false;
+    }
+
+    function createMediaThumb(item) {
+        if (item.type === 'video') {
+            const video = document.createElement('video');
+            video.className = 'community-media__thumb';
+            video.src = item.url;
+            video.preload = 'metadata';
+            video.muted = true;
+            video.playsInline = true;
+            return video;
+        }
+
+        const img = document.createElement('img');
+        img.className = 'community-media__thumb';
+        img.src = item.url;
+        img.alt = '图片';
+        img.loading = 'lazy';
+        return img;
+    }
+
+    // 单个媒体直接大图，多个媒体用九宫格缩小显示
+    function renderCommunityMedia(post) {
+        const media = post.media || [];
+        if (!media.length || !communityDetailBody) return;
+
+        if (media.length === 1) {
+            communityDetailBody.appendChild(
+                createMediaElement(media[0].url, media[0].type, 'community-media')
+            );
+            return;
+        }
+
+        const grid = document.createElement('div');
+        grid.className = 'community-media-grid';
+
+        media.forEach(function (item, index) {
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'community-media__cell';
+            cell.addEventListener('click', function () {
+                openMediaViewer(media, index);
+            });
+
+            cell.appendChild(createMediaThumb(item));
+
+            if (item.type === 'video') {
+                const play = document.createElement('span');
+                play.className = 'community-media__play';
+                play.textContent = '▶';
+                cell.appendChild(play);
+            }
+
+            grid.appendChild(cell);
+        });
+
+        communityDetailBody.appendChild(grid);
+    }
+
+    // 点击缩略图后的全屏查看层，支持左右切换
+    function openMediaViewer(media, startIndex) {
+        if (!media || !media.length) return;
+
+        let index = startIndex || 0;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'media-viewer';
+
+        const stage = document.createElement('div');
+        stage.className = 'media-viewer__stage';
+
+        const counter = document.createElement('span');
+        counter.className = 'media-viewer__count';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'media-viewer__close';
+        closeBtn.textContent = '×';
+        closeBtn.setAttribute('aria-label', '关闭');
+
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'media-viewer__nav media-viewer__nav--prev';
+        prevBtn.textContent = '‹';
+        prevBtn.setAttribute('aria-label', '上一个');
+
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'media-viewer__nav media-viewer__nav--next';
+        nextBtn.textContent = '›';
+        nextBtn.setAttribute('aria-label', '下一个');
+
+        function render() {
+            stage.textContent = '';
+            const item = media[index];
+            if (!item) return;
+            stage.appendChild(createMediaElement(item.url, item.type, 'media-viewer__media'));
+            counter.textContent = media.length > 1 ? (index + 1) + ' / ' + media.length : '';
+        }
+
+        function close() {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+        }
+
+        function step(delta) {
+            index = (index + delta + media.length) % media.length;
+            render();
+        }
+
+        function onKey(e) {
+            if (e.key === 'Escape') {
+                close();
+            } else if (e.key === 'ArrowLeft') {
+                step(-1);
+            } else if (e.key === 'ArrowRight') {
+                step(1);
+            }
+        }
+
+        closeBtn.addEventListener('click', close);
+        prevBtn.addEventListener('click', function () { step(-1); });
+        nextBtn.addEventListener('click', function () { step(1); });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) close();
+        });
+
+        const multiple = media.length > 1;
+        prevBtn.hidden = !multiple;
+        nextBtn.hidden = !multiple;
+
+        render();
+        overlay.append(counter, prevBtn, nextBtn, closeBtn, stage);
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', onKey);
     }
 
     function openCommunityPost(post) {
@@ -2251,13 +2418,7 @@
         });
 
         communityDetailBody.append(head, text);
-
-        if (post.media_url) {
-            communityDetailBody.append(
-                createMediaElement(post.media_url, post.media_type, 'community-media')
-            );
-        }
-
+        renderCommunityMedia(post);
         communityDetailBody.append(actions, comments);
 
         loadCommunityComments(post, commentList);
@@ -2477,7 +2638,7 @@
 
         const result = await sb
             .from('community_posts')
-            .select('id, content, created_at, author_id, media_url, media_type')
+            .select('id, content, created_at, author_id, media')
             .order('created_at', { ascending: false })
             .limit(100);
 
@@ -2549,13 +2710,21 @@
         }
 
         communityPosts = rows.map(function (row) {
+            const media = Array.isArray(row.media) ? row.media : [];
             return {
                 id: row.id,
                 author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
-                media_url: row.media_url || null,
-                media_type: row.media_type || null,
+                media: media
+                    .filter(function (item) { return item && item.url; })
+                    .slice(0, 9)
+                    .map(function (item) {
+                        return {
+                            url: item.url,
+                            type: item.type === 'video' ? 'video' : 'image'
+                        };
+                    }),
                 likes_count: likeCounts[row.id] || 0,
                 liked: !!likedIds[row.id],
                 bookmarked: !!bookmarkedIds[row.id],
@@ -2645,12 +2814,42 @@
         return el;
     }
 
-    function setCommunityFile(file) {
-        communityFile = file || null;
-        if (communityAttachName) {
-            communityAttachName.textContent = communityFile ? mediaName(communityFile) : '';
+    function renderCommunityAttach() {
+        if (communityAttachList) {
+            communityAttachList.textContent = '';
+            communityFiles.forEach(function (file, index) {
+                const chip = document.createElement('span');
+                chip.className = 'media-chip';
+
+                const name = document.createElement('span');
+                name.className = 'media-chip__name';
+                name.textContent = mediaName(file);
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'media-chip__remove';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', '移除');
+                remove.addEventListener('click', function () {
+                    communityFiles.splice(index, 1);
+                    renderCommunityAttach();
+                });
+
+                chip.append(name, remove);
+                communityAttachList.appendChild(chip);
+            });
         }
-        if (communityAttachClear) communityAttachClear.hidden = !communityFile;
+
+        if (communityAttachName) {
+            communityAttachName.textContent = communityFiles.length
+                ? '已选 ' + communityFiles.length + ' / 9'
+                : '最多选 9 个';
+        }
+    }
+
+    function setCommunityFiles(files) {
+        communityFiles = files.slice(0, 9);
+        renderCommunityAttach();
     }
 
     if (communityAttachBtn && communityFileInput) {
@@ -2659,27 +2858,39 @@
         });
 
         communityFileInput.addEventListener('change', function () {
-            const file = communityFileInput.files && communityFileInput.files[0];
+            const picked = Array.prototype.slice.call(communityFileInput.files || []);
             communityFileInput.value = '';
-            if (!file) return;
+            if (!picked.length) return;
 
-            if (!mediaKind(file)) {
-                setSocialMsg(communityMsg, '只支持图片或视频');
-                return;
-            }
-            if (file.size > MEDIA_MAX_SIZE) {
-                setSocialMsg(communityMsg, '文件不能超过 25MB');
-                return;
+            const accepted = [];
+            for (let i = 0; i < picked.length; i += 1) {
+                const file = picked[i];
+                if (!mediaKind(file)) {
+                    setSocialMsg(communityMsg, '只支持图片或视频');
+                    return;
+                }
+                if (file.size > MEDIA_MAX_SIZE) {
+                    setSocialMsg(communityMsg, '单个文件不能超过 25MB');
+                    return;
+                }
+                accepted.push(file);
             }
 
-            setSocialMsg(communityMsg, '');
-            setCommunityFile(file);
+            const room = 9 - communityFiles.length;
+            if (accepted.length > room) {
+                setSocialMsg(communityMsg, '最多选 9 个，多出的没有加入');
+            } else {
+                setSocialMsg(communityMsg, '');
+            }
+
+            setCommunityFiles(communityFiles.concat(accepted.slice(0, room)));
         });
     }
 
-    if (communityAttachClear) {
-        communityAttachClear.addEventListener('click', function () {
-            setCommunityFile(null);
+    if (communitySortSelect) {
+        communitySortSelect.addEventListener('change', function () {
+            communitySort = communitySortSelect.value;
+            renderCommunityPosts();
         });
     }
 
@@ -2693,8 +2904,8 @@
             }
 
             const text = (communityInput.value || '').trim();
-            if (!text && !communityFile) {
-                setSocialMsg(communityMsg, '写点什么，或选一张图片/视频');
+            if (!text && !communityFiles.length) {
+                setSocialMsg(communityMsg, '写点什么，或选几张图片/视频');
                 return;
             }
             if (text.length > 500) {
@@ -2716,11 +2927,13 @@
                 return;
             }
 
-            let media = null;
-            if (communityFile) {
+            let media = [];
+            if (communityFiles.length) {
                 submit.textContent = '上传中…';
                 try {
-                    media = await uploadMediaFile(communityFile, 'community');
+                    for (let i = 0; i < communityFiles.length; i += 1) {
+                        media.push(await uploadMediaFile(communityFiles[i], 'community'));
+                    }
                 } catch (err) {
                     submit.disabled = false;
                     submit.textContent = '发布';
@@ -2733,8 +2946,7 @@
             const result = await sb.from('community_posts').insert({
                 author_id: currentUser.id,
                 content: text,
-                media_url: media ? media.url : null,
-                media_type: media ? media.type : null
+                media: media
             });
 
             submit.disabled = false;
@@ -2747,7 +2959,7 @@
 
             communityInput.value = '';
             updateCommunityCount();
-            setCommunityFile(null);
+            setCommunityFiles([]);
             setSocialMsg(communityMsg, '已发布', 'success');
             await loadCommunity(true);
         });
