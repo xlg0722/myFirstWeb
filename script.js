@@ -13,9 +13,15 @@
     let height = 0;
 
     // 星星配置
-    const STAR_COUNT = 220;       // 普通星星数量
-    const GLOW_STAR_COUNT = 8;    // 带光晕的亮星
-    const SHOOTING_STAR_INTERVAL = 4000; // 流星生成间隔
+    const STAR_COUNT = 130;       // 普通星星数量
+    const GLOW_STAR_COUNT = 6;    // 带光晕的亮星
+    const SHOOTING_STAR_INTERVAL = 5000; // 流星生成间隔
+    const FRAME_INTERVAL = 1000 / 30;    // 星空 30 帧足够，省一半 GPU
+    const GLOW_SPRITE_R = 40;            // 亮星光晕贴图半径
+    const TAU = Math.PI * 2;
+
+    let glowSprite = null;        // 预渲染的光晕贴图，避免每帧建渐变
+    let nebulaSprite = null;      // 预渲染的星云暗区贴图
 
     // 视差配置
     const MAX_PARALLAX = 46;   // 最大位移（像素）
@@ -31,17 +37,65 @@
 
     // 调整画布尺寸
     function resize() {
-        const dpr = window.devicePixelRatio || 1;
         width = window.innerWidth;
         height = window.innerHeight;
 
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
+        // 高分屏按 1.5 封顶，再按总像素数兜底：4K/缩放屏上不为了背景星星烧掉整块 GPU
+        let dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        const MAX_PIXELS = 1920 * 1080 * 1.6;
+        const pixels = width * height * dpr * dpr;
+        if (pixels > MAX_PIXELS) dpr = Math.sqrt(MAX_PIXELS / (width * height));
+
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
         canvas.style.width = width + 'px';
         canvas.style.height = height + 'px';
         ctx.scale(dpr, dpr);
 
         generateStars();
+        buildGlowSprite(dpr);
+        buildNebulaSprite();
+    }
+
+    // 亮星光晕只渲染一次，之后用 drawImage 缩放绘制
+    function buildGlowSprite(dpr) {
+        const size = Math.round(GLOW_SPRITE_R * 2 * dpr);
+        const off = document.createElement('canvas');
+        off.width = size;
+        off.height = size;
+        const g = off.getContext('2d');
+        const c = size / 2;
+        const grad = g.createRadialGradient(c, c, 0, c, c, c);
+        grad.addColorStop(0, 'rgba(200, 220, 255, 0.9)');
+        grad.addColorStop(0.2, 'rgba(150, 180, 230, 0.4)');
+        grad.addColorStop(0.5, 'rgba(100, 130, 180, 0.15)');
+        grad.addColorStop(1, 'rgba(80, 100, 150, 0)');
+        g.fillStyle = grad;
+        g.fillRect(0, 0, size, size);
+        glowSprite = off;
+    }
+
+    // 星云暗区同样预渲染，避免每帧 createRadialGradient
+    function buildNebulaSprite() {
+        const maxR = Math.max(nebula.rx, nebula.ry);
+        if (!maxR) return;
+        const w = Math.max(1, Math.round(nebula.rx * 2));
+        const h = Math.max(1, Math.round(nebula.ry * 2));
+        const off = document.createElement('canvas');
+        off.width = w;
+        off.height = h;
+        const g = off.getContext('2d');
+        g.translate(w / 2, h / 2);
+        g.scale(nebula.rx / maxR, nebula.ry / maxR);
+        const grad = g.createRadialGradient(0, 0, 0, 0, 0, maxR);
+        grad.addColorStop(0, 'rgba(5, 10, 20, 0.7)');
+        grad.addColorStop(0.5, 'rgba(8, 15, 28, 0.4)');
+        grad.addColorStop(1, 'rgba(10, 18, 32, 0)');
+        g.fillStyle = grad;
+        g.beginPath();
+        g.arc(0, 0, maxR, 0, TAU);
+        g.fill();
+        nebulaSprite = off;
     }
 
     // 生成星星
@@ -102,66 +156,55 @@
     function drawStar(star) {
         // 闪烁动画
         star.twinklePhase += star.twinkleSpeed;
-        star.alpha = star.baseAlpha * (0.6 + 0.4 * Math.sin(star.twinklePhase));
+        const alpha = star.baseAlpha * (0.6 + 0.4 * Math.sin(star.twinklePhase));
 
         const { dx, dy } = parallaxOffset(star.depth);
         const x = star.x + dx;
         const y = star.y + dy;
 
-        ctx.save();
-        ctx.globalAlpha = star.alpha;
+        ctx.globalAlpha = alpha;
 
         if (star.type === 'glow') {
-            // 带光晕的亮星
-            const gradient = ctx.createRadialGradient(x, y, 0, x, y, star.glowR);
-            gradient.addColorStop(0, 'rgba(200, 220, 255, 0.9)');
-            gradient.addColorStop(0.2, 'rgba(150, 180, 230, 0.4)');
-            gradient.addColorStop(0.5, 'rgba(100, 130, 180, 0.15)');
-            gradient.addColorStop(1, 'rgba(80, 100, 150, 0)');
-
-            ctx.fillStyle = gradient;
-            ctx.beginPath();
-            ctx.arc(x, y, star.glowR, 0, Math.PI * 2);
-            ctx.fill();
-
-            // 星心
+            // 预渲染的光晕贴图，按亮度直接缩放绘制
+            if (glowSprite) {
+                const r = star.glowR;
+                ctx.drawImage(glowSprite, x - r, y - r, r * 2, r * 2);
+            }
+            ctx.globalAlpha = Math.min(1, alpha * 1.2);
             ctx.fillStyle = 'rgba(240, 245, 255, 0.95)';
             ctx.beginPath();
-            ctx.arc(x, y, star.r * 0.7, 0, Math.PI * 2);
+            ctx.arc(x, y, star.r * 0.7, 0, TAU);
             ctx.fill();
         } else {
             // 普通星星
             ctx.fillStyle = 'rgba(220, 230, 255, 1)';
             ctx.beginPath();
-            ctx.arc(x, y, star.r, 0, Math.PI * 2);
+            ctx.arc(x, y, star.r, 0, TAU);
             ctx.fill();
         }
 
-        ctx.restore();
+        ctx.globalAlpha = 1;
     }
 
     // 绘制中心星云暗区（视差幅度更小，形成层次感）
     function drawNebula() {
+        if (!nebulaSprite) return;
+
         const { dx, dy } = parallaxOffset(0.25);
-        const cx = nebula.cx + dx;
-        const cy = nebula.cy + dy;
+        const rx = nebula.rx;
+        const ry = nebula.ry;
+        const cx = nebula.cx + dx - rx;
+        const cy = nebula.cy + dy - ry;
 
-        // 椭圆形暗区
-        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(nebula.rx, nebula.ry));
-        gradient.addColorStop(0, 'rgba(5, 10, 20, 0.7)');
-        gradient.addColorStop(0.5, 'rgba(8, 15, 28, 0.4)');
-        gradient.addColorStop(1, 'rgba(10, 18, 32, 0)');
-
-        ctx.save();
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.ellipse(cx, cy, nebula.rx, nebula.ry, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        ctx.drawImage(nebulaSprite, cx, cy, rx * 2, ry * 2);
     }
 
     // 绘制流星
     function createShootingStar() {
+        // 页面不可见或处于重 UI 页面时不生成，避免流星越积越多
+        if (document.hidden || heavyPage) return;
+        if (shootingStars.length > 3) return;
+
         const startX = Math.random() * width * 0.6;
         const startY = Math.random() * height * 0.4;
         const angle = Math.PI / 4 + (Math.random() - 0.5) * 0.3;
@@ -216,8 +259,26 @@
         }
     }
 
-    // 主循环
-    function animate() {
+    // 主循环（30 帧节流，背景动画不需要 60 帧）
+    let lastFrame = 0;
+    let heavyPage = ['friends', 'profile'].indexOf(location.hash.slice(1)) >= 0;
+
+    // 好友/资料页元素多，暂停背景动画，减少重绘和模糊计算
+    window.addEventListener('silgu:page', (e) => {
+        const name = e.detail && e.detail.name;
+        heavyPage = name === 'friends' || name === 'profile';
+    });
+
+    function animate(now) {
+        requestAnimationFrame(animate);
+
+        const time = now || performance.now();
+        if (time - lastFrame < FRAME_INTERVAL) return;
+        lastFrame = time;
+
+        // 标签页不可见或处于重 UI 页面时跳过绘制
+        if (document.hidden || heavyPage) return;
+
         // 缓动跟随鼠标，避免突变
         pointer.x += (pointer.targetX - pointer.x) * EASE;
         pointer.y += (pointer.targetY - pointer.y) * EASE;
@@ -234,8 +295,6 @@
 
         // 画流星
         drawShootingStars();
-
-        requestAnimationFrame(animate);
     }
 
     // 记录鼠标位置（归一化到 -1 ~ 1）
@@ -266,7 +325,7 @@
 
     // 启动
     resize();
-    animate();
+    requestAnimationFrame(animate);
 
     // 定时生成流星
     setInterval(createShootingStar, SHOOTING_STAR_INTERVAL);
