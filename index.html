@@ -19,6 +19,7 @@
             <div class="nav-links">
                 <a href="#home" class="nav-link nav-link--active" data-page="home">首页</a>
                 <a href="#download" class="nav-link" data-page="download">下载</a>
+                <a href="#profile" class="nav-link" id="nav-profile" data-page="profile" hidden>个人资料</a>
                 <div class="nav-account" id="nav-account"></div>
             </div>
         </div>
@@ -131,6 +132,53 @@
                 <p class="auth-msg" role="alert"></p>
                 <p class="auth-switch">已有账号？<a href="#login" data-page="login">登录</a></p>
             </form>
+        </div>
+    </section>
+
+    <!-- 个人资料 -->
+    <section class="page" id="page-profile">
+        <div class="page-inner">
+            <a class="back-link" href="#home" data-page="home">← 返回首页</a>
+            <h2 class="panel-title">个人资料</h2>
+
+            <div class="profile-head">
+                <button class="profile-avatar" id="avatar-pick" type="button" title="更换头像" aria-label="更换头像">
+                    <img class="profile-avatar__img" id="profile-avatar-img" alt="" hidden>
+                    <span class="profile-avatar__fallback" id="profile-avatar-fallback"></span>
+                </button>
+                <div class="profile-meta">
+                    <p class="profile-name" id="profile-name"></p>
+                    <p class="profile-email" id="profile-email"></p>
+                </div>
+            </div>
+            <p class="profile-tip">点击头像更换（JPG / PNG / WebP / GIF，2MB 以内）</p>
+            <input type="file" id="avatar-file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
+
+            <form class="auth-form profile-form" id="profile-form" novalidate>
+                <label class="field">
+                    <span class="field__label">昵称</span>
+                    <input class="field__input" type="text" name="nickname" maxlength="20" placeholder="1-20 个字符" autocomplete="nickname" required>
+                </label>
+                <button class="menu-button auth-submit" type="submit">保存昵称</button>
+                <p class="auth-msg" role="alert"></p>
+            </form>
+
+            <div class="danger-zone">
+                <h3 class="danger-zone__title">注销账号</h3>
+                <p class="danger-zone__desc">注销后账号、昵称和头像都会被永久删除，无法恢复。</p>
+                <form class="auth-form" id="delete-form" novalidate>
+                    <label class="field">
+                        <span class="field__label">当前密码</span>
+                        <input class="field__input" type="password" name="password" autocomplete="current-password" required>
+                    </label>
+                    <label class="field">
+                        <span class="field__label">输入「注销」以确认</span>
+                        <input class="field__input" type="text" name="confirm" placeholder="注销" autocomplete="off" required>
+                    </label>
+                    <button class="menu-button auth-submit auth-submit--danger" type="submit">永久注销账号</button>
+                    <p class="auth-msg" role="alert"></p>
+                </form>
+            </div>
         </div>
     </section>
 
