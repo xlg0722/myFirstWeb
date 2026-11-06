@@ -1350,6 +1350,25 @@ button.friend-item:focus-visible {
     color: rgba(170, 190, 225, 0.42);
 }
 
+/* 自己评论右侧的删除按钮 */
+.community-comment__delete {
+    margin-left: auto;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: rgba(255, 154, 162, 0.9);
+    background: none;
+    border: 1px solid rgba(255, 154, 162, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.community-comment__delete:hover {
+    color: #ff9aa2;
+    border-color: rgba(255, 154, 162, 0.65);
+    background: rgba(255, 154, 162, 0.08);
+}
+
 .community-comment__text {
     margin-top: 2px;
     font-size: 13px;
