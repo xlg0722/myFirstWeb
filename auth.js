@@ -82,6 +82,7 @@
         if (/rate limit|too many/i.test(message)) return '操作太频繁，稍后再试';
         if (/Failed to fetch/i.test(message)) return '连不上服务器，检查网络后重试';
         if (/Bucket not found/i.test(message)) return '头像存储桶不存在，请先完成数据库初始化';
+        if (/permission denied/i.test(message)) return '数据库权限没配置好，请先执行授权脚本';
         if (/row-level security/i.test(message)) return '没有权限执行这个操作，请先完成数据库初始化';
         if (/does not exist/i.test(message)) return '数据库还没初始化，请先在 Supabase 执行初始化脚本';
         return message;
@@ -116,8 +117,17 @@
         if (navProfile) navProfile.hidden = !currentUser;
 
         if (currentUser) {
-            const avatar = document.createElement('span');
+            // 导航只显示头像 + 退出，不显示昵称；点头像进入个人资料
+            const avatar = document.createElement('a');
+            avatar.href = '#profile';
             avatar.className = 'nav-avatar';
+            avatar.title = '个人资料';
+            avatar.setAttribute('aria-label', '个人资料');
+            avatar.addEventListener('click', function (e) {
+                e.preventDefault();
+                goPage('profile');
+            });
+
             const src = avatarSrc();
             if (src) {
                 const img = document.createElement('img');
@@ -128,23 +138,13 @@
                 avatar.textContent = initialOf();
             }
 
-            const name = document.createElement('a');
-            name.href = '#profile';
-            name.className = 'nav-account__name';
-            name.title = '个人资料';
-            name.textContent = nicknameOf();
-            name.addEventListener('click', function (e) {
-                e.preventDefault();
-                goPage('profile');
-            });
-
             const logout = document.createElement('button');
             logout.type = 'button';
             logout.className = 'nav-link nav-account__logout';
             logout.dataset.action = 'logout';
             logout.textContent = '退出';
 
-            accountBox.append(avatar, name, logout);
+            accountBox.append(avatar, logout);
             return;
         }
 
@@ -599,7 +599,7 @@
             if (result.error) {
                 submit.disabled = false;
                 submit.textContent = '永久注销账号';
-                showMessage(deleteForm, '注销失败：' + result.error.message);
+                showMessage(deleteForm, '注销失败：' + translateError(result.error.message));
                 return;
             }
 
