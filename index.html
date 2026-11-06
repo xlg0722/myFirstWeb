@@ -109,6 +109,12 @@
                         <form class="auth-form community-form" id="community-form" novalidate>
                             <textarea class="chat-input community-input" id="community-input" rows="3"
                                       maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
+                            <div class="media-pick">
+                                <button class="friend-action media-pick__btn" id="community-attach" type="button">图片 / 视频</button>
+                                <span class="media-pick__name" id="community-attach-name"></span>
+                                <button class="friend-action media-pick__clear" id="community-attach-clear" type="button" hidden>移除</button>
+                            </div>
+                            <input class="media-file" type="file" id="community-file" accept="image/*,video/*" hidden>
                             <div class="community-form__foot">
                                 <span class="community-count" id="community-count">0/500</span>
                                 <button class="code-send community-send" type="submit">发布</button>
@@ -294,10 +300,16 @@
                     <p class="friends-empty" id="chat-empty" hidden>还没有消息，打个招呼吧</p>
                 </div>
                 <form class="chat-form" id="chat-form" novalidate>
+                    <button class="friend-action chat-attach" id="chat-attach" type="button" title="发送图片或视频">＋</button>
                     <textarea class="chat-input" id="chat-input" rows="1" maxlength="2000"
                               placeholder="输入消息…" autocomplete="off"></textarea>
                     <button class="code-send chat-send" type="submit">发送</button>
                 </form>
+                <div class="chat-attach-bar" id="chat-attach-bar" hidden>
+                    <span class="chat-attach-name" id="chat-attach-name"></span>
+                    <button class="chat-attach-clear" id="chat-attach-clear" type="button">移除</button>
+                </div>
+                <input class="media-file" type="file" id="chat-file" accept="image/*,video/*" hidden>
                 <p class="auth-msg" id="chat-msg" role="alert"></p>
             </div>
         </div>
