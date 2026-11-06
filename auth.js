@@ -2158,6 +2158,25 @@
             meta.append(name);
             head.append(avatar, meta);
 
+            // 收藏星标 + 点赞数
+            const marks = document.createElement('span');
+            marks.className = 'community-post__marks';
+
+            if (post.bookmarked) {
+                const star = document.createElement('span');
+                star.className = 'community-post__star';
+                star.textContent = '★';
+                star.title = '已收藏';
+                marks.appendChild(star);
+            }
+
+            const likes = document.createElement('span');
+            likes.className = 'community-post__likes';
+            likes.textContent = '♥ ' + (post.likes_count || 0);
+            marks.appendChild(likes);
+
+            head.append(marks);
+
             // 列表里只显示一行预览，超出用省略号
             const preview = document.createElement('p');
             preview.className = 'community-post__preview';
@@ -2441,10 +2460,9 @@
         }
     }
 
-    // 按热度排序时，点赞数变化后重新排序，但保留滚动位置
-    function reorderCommunityIfNeeded() {
+    // 点赞 / 收藏变化后刷新左侧列表（保留滚动位置），同步星标和点赞数
+    function refreshCommunityList() {
         if (!communityFeed) return;
-        if (communitySort !== 'hot' && communitySort !== 'cold') return;
         const keep = communityFeed.scrollTop;
         renderCommunityPosts();
         communityFeed.scrollTop = keep;
@@ -2477,7 +2495,7 @@
         button.classList.toggle('is-active', post.liked);
         setSocialMsg(communityMsg, '');
 
-        reorderCommunityIfNeeded();
+        refreshCommunityList();
     }
 
     async function toggleCommunityBookmark(post, button) {
@@ -2506,12 +2524,8 @@
         button.classList.toggle('is-active', post.bookmarked);
         setSocialMsg(communityMsg, post.bookmarked ? '已收藏' : '已取消收藏', 'success');
 
-        // 正在「只看收藏」时，取消收藏后要从列表里移除
-        if (communityBookmarkOnly) {
-            const keep = communityFeed ? communityFeed.scrollTop : 0;
-            renderCommunityPosts();
-            if (communityFeed) communityFeed.scrollTop = keep;
-        }
+        // 刷新左侧：收藏星标、点赞数，以及「只看收藏」下的移除
+        refreshCommunityList();
     }
 
     // 上海时区当天 0 点对应的 UTC 时间
