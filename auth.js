@@ -125,6 +125,10 @@
     let unreadByFriend = {};     // friend_id -> 未读条数
     let realtimeChannel = null;
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
+    let profileCache = {};       // 用户资料内存缓存 id -> { at, data }
+    let commentCache = {};       // 帖子评论缓存 post_id -> { at, rows, authors }
+    const PROFILE_CACHE_TTL = 5 * 60 * 1000;
+    const COMMENT_CACHE_TTL = 60 * 1000;
     let chatKeyCache = {};       // friend_id -> AES-GCM CryptoKey
     let localKeyPair = null;     // 本机 ECDH 密钥对
     let chatFile = null;         // 待发送的图片/视频
@@ -311,6 +315,7 @@
 
             if (result.data) {
                 currentProfile = result.data;
+                cacheSelfProfile();
                 return;
             }
 
@@ -328,6 +333,7 @@
                 updated_at: null,
                 public_key: null
             };
+            cacheSelfProfile();
         } catch (err) {
             currentProfile = {
                 nickname: displayNameOf(user),
@@ -335,6 +341,7 @@
                 updated_at: null,
                 public_key: null
             };
+            cacheSelfProfile();
             console.warn('读取个人资料失败：', err);
         }
     }
@@ -604,6 +611,8 @@
                 };
             }
 
+            cacheSelfProfile();
+
             renderAccount();
             renderProfilePage();
             showMessage(profileForm, '昵称已保存', 'success');
@@ -675,6 +684,7 @@
             }
 
             if (saved.data) currentProfile = saved.data;
+            cacheSelfProfile();
 
             renderAccount();
             renderProfilePage();
@@ -1161,6 +1171,48 @@
         });
     }
 
+    function cacheSelfProfile() {
+        if (currentUser && currentProfile) {
+            profileCache[currentUser.id] = {
+                at: Date.now(),
+                data: Object.assign({ id: currentUser.id }, currentProfile)
+            };
+        }
+    }
+
+    // 批量取用户资料：缓存里有的直接用，只查缺失的，好友/评论共用
+    async function fetchProfiles(ids) {
+        const unique = [];
+        ids.forEach(function (id) {
+            if (id && unique.indexOf(id) < 0) unique.push(id);
+        });
+
+        const now = Date.now();
+        const missing = unique.filter(function (id) {
+            const hit = profileCache[id];
+            return !(hit && now - hit.at < PROFILE_CACHE_TTL);
+        });
+
+        if (missing.length) {
+            const result = await sb.from('profiles')
+                .select('id, nickname, avatar_url, updated_at, public_key')
+                .in('id', missing);
+
+            if (result.error) {
+                console.warn('读取用户资料失败：', result.error);
+            } else {
+                (result.data || []).forEach(function (person) {
+                    profileCache[person.id] = { at: now, data: person };
+                });
+            }
+        }
+
+        return unique.map(function (id) {
+            const hit = profileCache[id];
+            return hit ? hit.data : { id: id };
+        });
+    }
+
     async function loadFriends() {
         if (!currentUser) {
             friends = [];
@@ -1183,14 +1235,10 @@
             return;
         }
 
-        const prof = await sb.from('profiles')
-            .select('id, nickname, avatar_url, updated_at, public_key')
-            .in('id', ids);
-
-        if (prof.error) console.warn('读取好友资料失败：', prof.error);
+        const prof = await fetchProfiles(ids);
 
         const map = {};
-        (prof.data || []).forEach(function (p) { map[p.id] = p; });
+        prof.forEach(function (p) { map[p.id] = p; });
 
         // 记下旧公钥，只有对方换了密钥设备时才丢弃对应的聊天密钥缓存
         const previousKeys = {};
@@ -1254,14 +1302,7 @@
         }
 
         const senderIds = (list.data || []).map(function (r) { return r.from_id; });
-        let profiles = [];
-        if (senderIds.length) {
-            const prof = await sb.from('profiles')
-                .select('id, nickname, avatar_url, updated_at')
-                .in('id', senderIds);
-            if (prof.error) console.warn('读取申请人资料失败：', prof.error);
-            profiles = prof.data || [];
-        }
+        const profiles = senderIds.length ? await fetchProfiles(senderIds) : [];
 
         const map = {};
         profiles.forEach(function (p) { map[p.id] = p; });
@@ -2573,6 +2614,14 @@
 
     async function loadCommunityComments(post, list) {
         if (!list) return;
+
+        // 60 秒内重复点开同一条帖子直接用缓存，不再请求
+        const cached = commentCache[post.id];
+        if (cached && Date.now() - cached.at < COMMENT_CACHE_TTL) {
+            renderCommunityComments(list, cached.rows, cached.authors);
+            return;
+        }
+
         list.textContent = '加载中…';
 
         const result = await sb
@@ -2595,17 +2644,19 @@
 
         let authors = {};
         if (authorIds.length) {
-            const people = await sb
-                .from('profiles')
-                .select('id, nickname, avatar_url, updated_at')
-                .in('id', authorIds);
-            if (!people.error) {
-                (people.data || []).forEach(function (person) {
-                    authors[person.id] = normalizeProfile(person);
-                });
-            }
+            (await fetchProfiles(authorIds)).forEach(function (person) {
+                authors[person.id] = normalizeProfile(person);
+            });
         }
 
+        list.textContent = '';
+
+        commentCache[post.id] = { at: Date.now(), rows: rows, authors: authors };
+        renderCommunityComments(list, rows, authors);
+    }
+
+    // 评论列表渲染：首次加载和缓存命中共用
+    function renderCommunityComments(list, rows, authors) {
         list.textContent = '';
 
         if (!rows.length) {
@@ -2671,6 +2722,7 @@
 
         input.value = '';
         setSocialMsg(communityMsg, '');
+        delete commentCache[post.id];
         await loadCommunityComments(post, list);
     }
 
@@ -2747,7 +2799,9 @@
         });
 
         const peoplePromise = authorIds.length
-            ? sb.from('profiles').select('id, nickname, avatar_url, updated_at').in('id', authorIds)
+            ? fetchProfiles(authorIds).then(function (people) {
+                return { data: people, error: null };
+            })
             : Promise.resolve({ data: [], error: null });
 
         // 点赞数（热度）、我的点赞、我的收藏，只取 post_id 字段
@@ -2977,248 +3031,3 @@
                 name.textContent = mediaName(file);
 
                 const remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'media-chip__remove';
-                remove.textContent = '×';
-                remove.setAttribute('aria-label', '移除');
-                remove.addEventListener('click', function () {
-                    communityFiles.splice(index, 1);
-                    renderCommunityAttach();
-                });
-
-                chip.append(name, remove);
-                communityAttachList.appendChild(chip);
-            });
-        }
-
-        if (communityAttachName) {
-            communityAttachName.textContent = communityFiles.length
-                ? '已选 ' + communityFiles.length + ' / 9'
-                : '最多选 9 个';
-        }
-    }
-
-    function setCommunityFiles(files) {
-        communityFiles = files.slice(0, 9);
-        renderCommunityAttach();
-    }
-
-    if (communityAttachBtn && communityFileInput) {
-        communityAttachBtn.addEventListener('click', function () {
-            communityFileInput.click();
-        });
-
-        communityFileInput.addEventListener('change', function () {
-            const picked = Array.prototype.slice.call(communityFileInput.files || []);
-            communityFileInput.value = '';
-            if (!picked.length) return;
-
-            const accepted = [];
-            for (let i = 0; i < picked.length; i += 1) {
-                const file = picked[i];
-                if (!mediaKind(file)) {
-                    setSocialMsg(communityMsg, '只支持图片或视频');
-                    return;
-                }
-                if (file.size > MEDIA_MAX_SIZE) {
-                    setSocialMsg(communityMsg, '单个文件不能超过 25MB');
-                    return;
-                }
-                accepted.push(file);
-            }
-
-            const room = 9 - communityFiles.length;
-            if (accepted.length > room) {
-                setSocialMsg(communityMsg, '最多选 9 个，多出的没有加入');
-            } else {
-                setSocialMsg(communityMsg, '');
-            }
-
-            setCommunityFiles(communityFiles.concat(accepted.slice(0, room)));
-        });
-    }
-
-    if (communitySortSelect) {
-        communitySortSelect.addEventListener('change', function () {
-            communitySort = communitySortSelect.value;
-            renderCommunityPosts();
-        });
-    }
-
-    if (communityBookmarkFilter) {
-        communityBookmarkFilter.addEventListener('click', function () {
-            communityBookmarkOnly = !communityBookmarkOnly;
-            communityBookmarkFilter.classList.toggle('is-active', communityBookmarkOnly);
-            communityBookmarkFilter.setAttribute('aria-pressed', communityBookmarkOnly ? 'true' : 'false');
-            if (communityFeed) communityFeed.scrollTop = 0;
-            renderCommunityPosts();
-        });
-    }
-
-    if (communityMoreBtn) {
-        communityMoreBtn.addEventListener('click', function () {
-            loadCommunity(false, true);
-        });
-    }
-
-    // 列表滚到接近底部时自动加载下一页
-    if (communityFeed) {
-        communityFeed.addEventListener('scroll', function () {
-            if (!communityHasMore || communityLoadingMore) return;
-            if (communityFeed.scrollTop + communityFeed.clientHeight >= communityFeed.scrollHeight - 160) {
-                loadCommunity(false, true);
-            }
-        });
-    }
-
-    if (communityForm) {
-        communityForm.addEventListener('submit', async function (e) {
-            e.preventDefault();
-
-            if (!currentUser) {
-                setSocialMsg(communityMsg, '登录后才能发布消息');
-                return;
-            }
-
-            const text = (communityInput.value || '').trim();
-            if (!text && !communityFiles.length) {
-                setSocialMsg(communityMsg, '写点什么，或选几张图片/视频');
-                return;
-            }
-            if (text.length > 500) {
-                setSocialMsg(communityMsg, '一条消息最多 500 个字');
-                return;
-            }
-
-            const submit = communityForm.querySelector('button[type="submit"]');
-            submit.disabled = true;
-            submit.textContent = '发布中…';
-            setSocialMsg(communityMsg, '');
-
-            // 每天最多 10 条，前端先查一次给出友好提示，数据库策略再兜底
-            const todayCount = await countTodayCommunityPosts();
-            if (todayCount !== null && todayCount >= 10) {
-                submit.disabled = false;
-                submit.textContent = '发布';
-                setSocialMsg(communityMsg, '每人每天最多发 10 条，明天再来吧');
-                return;
-            }
-
-            let media = [];
-            if (communityFiles.length) {
-                submit.textContent = '上传中…';
-                try {
-                    for (let i = 0; i < communityFiles.length; i += 1) {
-                        media.push(await uploadMediaFile(communityFiles[i], 'community'));
-                    }
-                } catch (err) {
-                    submit.disabled = false;
-                    submit.textContent = '发布';
-                    setSocialMsg(communityMsg, '媒体上传失败：' + translateError(err.message || ''));
-                    return;
-                }
-                submit.textContent = '发布中…';
-            }
-
-            const result = await sb.from('community_posts').insert({
-                author_id: currentUser.id,
-                content: text,
-                media: media
-            });
-
-            submit.disabled = false;
-            submit.textContent = '发布';
-
-            if (result.error) {
-                setSocialMsg(communityMsg, communityError(result.error));
-                return;
-            }
-
-            communityInput.value = '';
-            updateCommunityCount();
-            setCommunityFiles([]);
-            setSocialMsg(communityMsg, '已发布', 'success');
-            await loadCommunity(true);
-        });
-    }
-
-    if (keyExportBtn) {
-        keyExportBtn.addEventListener('click', exportChatKey);
-    }
-
-    if (keyImportBtn && keyFileInput) {
-        keyImportBtn.addEventListener('click', function () {
-            keyFileInput.click();
-        });
-        keyFileInput.addEventListener('change', function () {
-            const file = keyFileInput.files && keyFileInput.files[0];
-            keyFileInput.value = '';
-            if (file) importChatKey(file);
-        });
-    }
-
-    window.addEventListener('silgu:page', function (e) {
-        const name = e.detail && e.detail.name;
-
-        if (name === 'community') {
-            loadCommunity();
-            return;
-        }
-
-        if (name !== 'friends') return;
-
-        if (!currentUser) {
-            goPage('login');
-            return;
-        }
-
-        // 已经在刷新，或 15 秒内刚刷新过，就不再重复打一轮接口
-        if (socialRefreshing) return;
-        if (socialLoadedAt && Date.now() - socialLoadedAt < 15000) return;
-
-        refreshSocial();
-    });
-
-    sb.auth.onAuthStateChange(function () {
-        // 回调里直接调用其它 supabase 方法可能死锁，延后到当前事件结束
-        setTimeout(function () {
-            sb.auth.getSession().then(function (result) {
-                syncUser(result.data.session ? result.data.session.user : null);
-            });
-        }, 0);
-    });
-
-    sb.auth.getSession().then(function (result) {
-        syncUser(result.data.session ? result.data.session.user : null);
-    });
-
-    if (downloadButton) {
-        downloadButton.addEventListener('click', async function () {
-            if (downloadMsg) downloadMsg.textContent = '';
-
-            const sessionResult = await sb.auth.getSession();
-            if (!sessionResult.data.session) {
-                if (downloadMsg) downloadMsg.textContent = '请先登录再下载';
-                goPage('login');
-                return;
-            }
-
-            downloadButton.disabled = true;
-
-            const result = await sb.storage
-                .from(cfg.bucket)
-                .createSignedUrl(cfg.fileName, 120);
-
-            downloadButton.disabled = false;
-
-            if (result.error) {
-                if (downloadMsg) {
-                    downloadMsg.textContent = '下载失败：' + translateError(result.error.message);
-                }
-                return;
-            }
-
-            window.location.href = result.data.signedUrl;
-        });
-    }
-})();
