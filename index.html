@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -124,12 +124,15 @@
 
                         <div class="community-list__head">
                             <h3 class="section-title">最新消息</h3>
-                            <select class="community-sort" id="community-sort" aria-label="排序方式">
-                                <option value="new">最新发布</option>
-                                <option value="old">最早发布</option>
-                                <option value="hot">点赞最多</option>
-                                <option value="cold">点赞最少</option>
-                            </select>
+                            <div class="community-list__tools">
+                                <button class="community-filter" id="community-bookmark-filter" type="button" aria-pressed="false">只看收藏</button>
+                                <select class="community-sort" id="community-sort" aria-label="排序方式">
+                                    <option value="new">最新发布</option>
+                                    <option value="old">最早发布</option>
+                                    <option value="hot">点赞最多</option>
+                                    <option value="cold">点赞最少</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="community-list" id="community-feed"></div>
                         <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
