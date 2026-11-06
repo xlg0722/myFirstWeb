@@ -721,3 +721,324 @@ button.menu-button:disabled {
         font-size: 18px;
     }
 }
+
+/* ===== 好友与聊天 ===== */
+.page-inner--wide {
+    max-width: 560px;
+}
+
+.nav-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    min-width: 17px;
+    height: 17px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 17px;
+    text-align: center;
+    color: #fff;
+    background: #e5596b;
+    border-radius: 9px;
+    vertical-align: 2px;
+}
+
+.section-title {
+    margin: 20px 0 9px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    color: rgba(186, 204, 235, 0.62);
+}
+
+.friend-search {
+    margin-top: 2px;
+}
+
+.friend-section {
+    margin-top: 4px;
+}
+
+.friend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.friend-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(14, 22, 40, 0.5);
+    border: 1px solid rgba(158, 184, 232, 0.22);
+    border-radius: 8px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+button.friend-item {
+    width: 100%;
+    font-family: inherit;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+button.friend-item:hover {
+    border-color: rgba(180, 205, 255, 0.55);
+    background: rgba(24, 38, 68, 0.62);
+}
+
+button.friend-item:focus-visible {
+    outline: 2px solid #cfe0ff;
+    outline-offset: 3px;
+}
+
+.friend-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 600;
+    color: #dfe9ff;
+    background: rgba(96, 122, 172, 0.35);
+    border: 1px solid rgba(158, 184, 232, 0.3);
+    border-radius: 50%;
+}
+
+.friend-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.friend-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: #e6eeff;
+}
+
+.friend-item__actions {
+    display: flex;
+    flex: none;
+    gap: 6px;
+}
+
+.friend-action {
+    padding: 6px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    white-space: nowrap;
+    color: #cfe0ff;
+    background: rgba(20, 32, 56, 0.85);
+    border: 1px solid rgba(158, 184, 232, 0.35);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.friend-action:hover:not(:disabled) {
+    border-color: rgba(180, 205, 255, 0.7);
+    background: rgba(28, 44, 76, 0.9);
+}
+
+.friend-action:disabled {
+    color: rgba(195, 210, 238, 0.42);
+    border-color: rgba(158, 184, 232, 0.18);
+    cursor: default;
+}
+
+.friend-action--primary {
+    color: #eaf4ff;
+    background: linear-gradient(180deg, rgba(110, 140, 196, 0.55) 0%, rgba(36, 55, 92, 0.5) 100%);
+    border-color: rgba(180, 205, 255, 0.5);
+}
+
+.friend-unread {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background: #e5596b;
+    border-radius: 9px;
+}
+
+.friends-empty {
+    margin-top: 2px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: rgba(186, 204, 235, 0.45);
+}
+
+/* 聊天面板 */
+.chat-back {
+    appearance: none;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: rgba(195, 210, 238, 0.6);
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.chat-back:hover {
+    color: #fff;
+}
+
+.chat-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.chat-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 42px;
+    height: 42px;
+    overflow: hidden;
+    font-size: 17px;
+    font-weight: 600;
+    color: #dfe9ff;
+    background: rgba(96, 122, 172, 0.35);
+    border: 1px solid rgba(158, 184, 232, 0.3);
+    border-radius: 50%;
+}
+
+.chat-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.chat-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 18px;
+    font-weight: 600;
+    color: #eef3ff;
+}
+
+.chat-scroll {
+    height: clamp(220px, 46vh, 380px);
+    padding: 12px;
+    overflow-y: auto;
+    background: rgba(8, 14, 28, 0.45);
+    border: 1px solid rgba(158, 184, 232, 0.2);
+    border-radius: 10px;
+}
+
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.chat-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+}
+
+.chat-row--mine {
+    align-items: flex-end;
+}
+
+.chat-bubble {
+    max-width: 78%;
+    padding: 9px 12px;
+    font-size: 14px;
+    line-height: 1.55;
+    color: #e8f0ff;
+    background: rgba(96, 122, 172, 0.34);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.chat-row--mine .chat-bubble {
+    background: linear-gradient(180deg, rgba(78, 126, 196, 0.55) 0%, rgba(42, 72, 124, 0.5) 100%);
+    border-color: rgba(180, 205, 255, 0.45);
+}
+
+.chat-time {
+    font-size: 11px;
+    color: rgba(170, 190, 225, 0.42);
+}
+
+.chat-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.chat-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 44px;
+    max-height: 120px;
+    padding: 11px 14px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #eaf0ff;
+    background: rgba(14, 22, 40, 0.55);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 8px;
+    resize: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: rgba(180, 205, 255, 0.7);
+    box-shadow: 0 0 0 3px rgba(110, 160, 235, 0.18);
+}
+
+.chat-input::placeholder {
+    color: rgba(170, 190, 225, 0.45);
+}
+
+.chat-send {
+    flex: none;
+    min-height: 44px;
+}
+
+@media (max-width: 640px) {
+    .chat-scroll {
+        height: clamp(200px, 42vh, 320px);
+    }
+
+    .chat-bubble {
+        max-width: 84%;
+    }
+}

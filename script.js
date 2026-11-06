@@ -286,7 +286,7 @@
     const pages = document.querySelectorAll('.page');
     const links = document.querySelectorAll('[data-page]');
 
-    const PAGE_NAMES = ['home', 'download', 'versions', 'login', 'register', 'profile', 'verify'];
+    const PAGE_NAMES = ['home', 'download', 'versions', 'login', 'register', 'verify', 'profile', 'friends'];
 
     function showPage(name) {
         // 版本列表属于下载流程，导航高亮仍停在「下载」
@@ -308,6 +308,9 @@
             if (!l.classList.contains('nav-link')) return;
             l.classList.toggle('nav-link--active', l.dataset.page === navName);
         });
+
+        // 通知其它模块页面已切换（例如好友页需要在进入时刷新数据）
+        window.dispatchEvent(new CustomEvent('silgu:page', { detail: { name: name } }));
     }
 
     links.forEach((link) => {

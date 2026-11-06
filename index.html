@@ -19,6 +19,7 @@
             <div class="nav-links">
                 <a href="#home" class="nav-link nav-link--active" data-page="home">首页</a>
                 <a href="#download" class="nav-link" data-page="download">下载</a>
+                <a href="#friends" class="nav-link" id="nav-friends" data-page="friends" hidden>好友<span class="nav-badge" id="friends-badge" hidden>0</span></a>
                 <a href="#profile" class="nav-link" id="nav-profile" data-page="profile" hidden>个人资料</a>
                 <div class="nav-account" id="nav-account"></div>
             </div>
@@ -178,6 +179,59 @@
                     <button class="menu-button auth-submit auth-submit--danger" type="submit">永久注销账号</button>
                     <p class="auth-msg" role="alert"></p>
                 </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- 好友与聊天 -->
+    <section class="page" id="page-friends">
+        <div class="page-inner page-inner--wide">
+            <div id="friends-view">
+                <a class="back-link" href="#home" data-page="home">← 返回首页</a>
+                <h2 class="panel-title">好友</h2>
+
+                <form class="auth-form friend-search" id="friend-search-form" novalidate>
+                    <div class="code-row">
+                        <input class="field__input" type="search" name="query" maxlength="60"
+                               placeholder="输入昵称或完整邮箱" autocomplete="off">
+                        <button class="code-send" type="submit">搜索</button>
+                    </div>
+                    <p class="auth-msg" id="friend-search-msg" role="alert"></p>
+                </form>
+
+                <div class="friend-section" id="friend-results-wrap" hidden>
+                    <h3 class="section-title">搜索结果</h3>
+                    <div class="friend-list" id="friend-results"></div>
+                </div>
+
+                <div class="friend-section" id="friend-requests-wrap" hidden>
+                    <h3 class="section-title">好友申请</h3>
+                    <div class="friend-list" id="friend-requests"></div>
+                </div>
+
+                <div class="friend-section">
+                    <h3 class="section-title">我的好友</h3>
+                    <div class="friend-list" id="friends-list"></div>
+                    <p class="friends-empty" id="friends-empty">还没有好友，用昵称或邮箱搜索添加吧</p>
+                </div>
+            </div>
+
+            <div id="chat-view" hidden>
+                <button class="back-link chat-back" id="chat-back" type="button">← 好友列表</button>
+                <div class="chat-head">
+                    <span class="chat-avatar" id="chat-avatar"></span>
+                    <span class="chat-name" id="chat-name"></span>
+                </div>
+                <div class="chat-scroll" id="chat-scroll">
+                    <div class="chat-messages" id="chat-messages"></div>
+                    <p class="friends-empty" id="chat-empty" hidden>还没有消息，打个招呼吧</p>
+                </div>
+                <form class="chat-form" id="chat-form" novalidate>
+                    <textarea class="chat-input" id="chat-input" rows="1" maxlength="2000"
+                              placeholder="输入消息…" autocomplete="off"></textarea>
+                    <button class="code-send chat-send" type="submit">发送</button>
+                </form>
+                <p class="auth-msg" id="chat-msg" role="alert"></p>
             </div>
         </div>
     </section>

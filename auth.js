@@ -48,12 +48,43 @@
     const downloadButton = document.getElementById('download-latest');
     const downloadMsg = document.getElementById('download-msg');
 
+    // 好友与聊天
+    const navFriends = document.getElementById('nav-friends');
+    const friendsBadge = document.getElementById('friends-badge');
+    const friendsView = document.getElementById('friends-view');
+    const chatView = document.getElementById('chat-view');
+    const friendSearchForm = document.getElementById('friend-search-form');
+    const friendSearchMsg = document.getElementById('friend-search-msg');
+    const friendResultsWrap = document.getElementById('friend-results-wrap');
+    const friendResultsBox = document.getElementById('friend-results');
+    const friendRequestsWrap = document.getElementById('friend-requests-wrap');
+    const friendRequestsBox = document.getElementById('friend-requests');
+    const friendsListBox = document.getElementById('friends-list');
+    const friendsEmpty = document.getElementById('friends-empty');
+    const chatBackBtn = document.getElementById('chat-back');
+    const chatAvatar = document.getElementById('chat-avatar');
+    const chatName = document.getElementById('chat-name');
+    const chatScroll = document.getElementById('chat-scroll');
+    const chatMessagesBox = document.getElementById('chat-messages');
+    const chatEmpty = document.getElementById('chat-empty');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatMsg = document.getElementById('chat-msg');
+
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
     const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
     let currentUser = null;
     let currentProfile = null;
+
+    let friends = [];            // [{ id, nickname, avatar_url, updated_at }]
+    let pendingRequests = [];    // [{ id, from_id, nickname, avatar_url, updated_at }]
+    let pendingOutgoing = {};    // to_id -> true
+    let searchResults = [];
+    let activeFriend = null;
+    let unreadByFriend = {};     // friend_id -> 未读条数
+    let realtimeChannel = null;
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -88,6 +119,16 @@
         return message;
     }
 
+    // 好友相关操作的错误提示，补上「可能还没执行初始化脚本」的指引
+    function socialError(err) {
+        const message = (err && err.message) || '';
+        if (/Could not find the function|does not exist|schema cache/i.test(message)) {
+            return '好友功能还没初始化，请先在 Supabase 执行好友初始化脚本';
+        }
+        if (/duplicate key/i.test(message)) return '已经发过申请了，等对方处理吧';
+        return translateError(message);
+    }
+
     function displayNameOf(user) {
         const name = ((user && user.email) || '').split('@')[0];
         return name || '玩家';
@@ -115,6 +156,8 @@
         accountBox.textContent = '';
 
         if (navProfile) navProfile.hidden = !currentUser;
+        if (navFriends) navFriends.hidden = !currentUser;
+        renderBadge();
 
         if (currentUser) {
             const avatar = document.createElement('a');
@@ -241,13 +284,22 @@
     }
 
     async function syncUser(user) {
+        const previousId = currentUser ? currentUser.id : null;
         currentUser = user || null;
         await loadProfile(currentUser);
         renderAccount();
         renderProfilePage();
 
-        // 退出后仍停在个人资料页时回到登录页
-        if (!currentUser && location.hash === '#profile') {
+        // 登录状态变化时重新加载好友数据、重建实时订阅
+        const currentId = currentUser ? currentUser.id : null;
+        if (currentId !== previousId) {
+            stopRealtime();
+            if (currentId) startRealtime();
+            refreshSocial();
+        }
+
+        // 退出后仍停在需要登录的页面时回到登录页
+        if (!currentUser && (location.hash === '#profile' || location.hash === '#friends')) {
             goPage('login');
         }
     }
@@ -628,6 +680,688 @@
             window.alert('账号已注销，昵称、头像和账号信息都已永久删除。');
         });
     }
+
+    // ===== 好友与聊天 =====
+
+    function setSocialMsg(el, text, state) {
+        if (!el) return;
+        el.textContent = text || '';
+        el.dataset.state = text ? (state || 'error') : '';
+    }
+
+    function profileAvatarSrc(profile) {
+        if (!profile || !profile.avatar_url) return '';
+        const base = profile.avatar_url;
+        const stamp = profile.updated_at ? new Date(profile.updated_at).getTime() : 0;
+        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 't=' + stamp;
+    }
+
+    function fillAvatar(el, profile, name) {
+        if (!el) return;
+        el.textContent = '';
+        const src = profileAvatarSrc(profile);
+        if (src) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = '';
+            el.appendChild(img);
+            return;
+        }
+        el.textContent = (name || '?').trim().charAt(0).toUpperCase();
+    }
+
+    function normalizeProfile(p) {
+        return {
+            id: p.id,
+            nickname: p.nickname || '玩家',
+            avatar_url: p.avatar_url || null,
+            updated_at: p.updated_at || null
+        };
+    }
+
+    function renderBadge() {
+        if (!friendsBadge) return;
+        let total = pendingRequests.length;
+        Object.keys(unreadByFriend).forEach(function (key) {
+            total += unreadByFriend[key];
+        });
+        friendsBadge.textContent = total > 99 ? '99+' : String(total);
+        friendsBadge.hidden = !currentUser || total === 0;
+        if (navFriends) navFriends.hidden = !currentUser;
+    }
+
+    function renderFriends() {
+        if (!friendsListBox) return;
+        friendsListBox.textContent = '';
+        if (friendsEmpty) friendsEmpty.hidden = friends.length > 0;
+
+        friends.forEach(function (friend) {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'friend-item friend-item--button';
+            row.dataset.friendId = friend.id;
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar';
+            fillAvatar(avatar, friend, friend.nickname);
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = friend.nickname;
+
+            row.append(avatar, name);
+
+            const unread = unreadByFriend[friend.id] || 0;
+            if (unread > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'friend-unread';
+                badge.textContent = unread > 99 ? '99+' : String(unread);
+                row.appendChild(badge);
+            }
+
+            friendsListBox.appendChild(row);
+        });
+    }
+
+    function renderRequests() {
+        if (!friendRequestsBox) return;
+        friendRequestsBox.textContent = '';
+        if (friendRequestsWrap) friendRequestsWrap.hidden = pendingRequests.length === 0;
+
+        pendingRequests.forEach(function (req) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar';
+            fillAvatar(avatar, req, req.nickname);
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = req.nickname;
+
+            const actions = document.createElement('span');
+            actions.className = 'friend-item__actions';
+
+            const accept = document.createElement('button');
+            accept.type = 'button';
+            accept.className = 'friend-action friend-action--primary';
+            accept.dataset.action = 'accept-request';
+            accept.dataset.requestId = req.requestId;
+            accept.textContent = '接受';
+
+            const reject = document.createElement('button');
+            reject.type = 'button';
+            reject.className = 'friend-action';
+            reject.dataset.action = 'reject-request';
+            reject.dataset.requestId = req.requestId;
+            reject.textContent = '忽略';
+
+            actions.append(accept, reject);
+            row.append(avatar, name, actions);
+            friendRequestsBox.appendChild(row);
+        });
+    }
+
+    function renderSearchResults() {
+        if (!friendResultsBox) return;
+        friendResultsBox.textContent = '';
+        if (friendResultsWrap) friendResultsWrap.hidden = searchResults.length === 0;
+
+        searchResults.forEach(function (person) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar';
+            fillAvatar(avatar, person, person.nickname);
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = person.nickname;
+
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'friend-action';
+
+            const isMe = currentUser && person.id === currentUser.id;
+            const isFriend = friends.some(function (f) { return f.id === person.id; });
+            const isPending = !!pendingOutgoing[person.id];
+
+            if (isMe) {
+                action.textContent = '你自己';
+                action.disabled = true;
+            } else if (isFriend) {
+                action.textContent = '已是好友';
+                action.disabled = true;
+            } else if (isPending) {
+                action.textContent = '已申请';
+                action.disabled = true;
+            } else {
+                action.textContent = '加好友';
+                action.dataset.action = 'add-friend';
+                action.dataset.userId = person.id;
+            }
+
+            row.append(avatar, name, action);
+            friendResultsBox.appendChild(row);
+        });
+    }
+
+    async function loadFriends() {
+        if (!currentUser) {
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        const rel = await sb.from('friendships').select('friend_id').eq('user_id', currentUser.id);
+        if (rel.error) {
+            console.warn('读取好友列表失败：', rel.error);
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        const ids = (rel.data || []).map(function (r) { return r.friend_id; });
+        if (!ids.length) {
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        const prof = await sb.from('profiles')
+            .select('id, nickname, avatar_url, updated_at')
+            .in('id', ids);
+
+        if (prof.error) console.warn('读取好友资料失败：', prof.error);
+
+        const map = {};
+        (prof.data || []).forEach(function (p) { map[p.id] = p; });
+
+        friends = ids.map(function (id) {
+            return normalizeProfile(map[id] || { id: id });
+        }).sort(function (a, b) {
+            return a.nickname.localeCompare(b.nickname, 'zh-CN');
+        });
+
+        if (activeFriend) {
+            const fresh = friends.find(function (f) { return f.id === activeFriend.id; });
+            if (fresh) activeFriend = fresh;
+        }
+
+        renderFriends();
+    }
+
+    async function loadRequests() {
+        pendingOutgoing = {};
+        pendingRequests = [];
+
+        if (!currentUser) {
+            renderRequests();
+            renderBadge();
+            return;
+        }
+
+        const outgoing = await sb.from('friend_requests')
+            .select('to_id')
+            .eq('from_id', currentUser.id)
+            .eq('status', 'pending');
+
+        if (outgoing.error) console.warn('读取已发申请失败：', outgoing.error);
+        (outgoing.data || []).forEach(function (r) { pendingOutgoing[r.to_id] = true; });
+
+        const list = await sb.from('friend_requests')
+            .select('id, from_id, created_at')
+            .eq('to_id', currentUser.id)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (list.error) {
+            console.warn('读取好友申请失败：', list.error);
+            renderRequests();
+            renderBadge();
+            return;
+        }
+
+        const senderIds = (list.data || []).map(function (r) { return r.from_id; });
+        let profiles = [];
+        if (senderIds.length) {
+            const prof = await sb.from('profiles')
+                .select('id, nickname, avatar_url, updated_at')
+                .in('id', senderIds);
+            if (prof.error) console.warn('读取申请人资料失败：', prof.error);
+            profiles = prof.data || [];
+        }
+
+        const map = {};
+        profiles.forEach(function (p) { map[p.id] = p; });
+
+        pendingRequests = (list.data || []).map(function (r) {
+            const result = normalizeProfile(map[r.from_id] || { id: r.from_id });
+            result.id = map[r.from_id] ? map[r.from_id].id : r.from_id;
+            result.requestId = r.id;
+            result.from_id = r.from_id;
+            result.created_at = r.created_at;
+            return result;
+        });
+
+        renderRequests();
+        renderBadge();
+    }
+
+    async function loadUnread() {
+        unreadByFriend = {};
+
+        if (!currentUser) {
+            renderBadge();
+            return;
+        }
+
+        const result = await sb.from('messages')
+            .select('sender_id')
+            .eq('receiver_id', currentUser.id)
+            .is('read_at', null)
+            .limit(1000);
+
+        if (result.error) {
+            console.warn('读取未读消息失败：', result.error);
+            renderBadge();
+            return;
+        }
+
+        (result.data || []).forEach(function (m) {
+            unreadByFriend[m.sender_id] = (unreadByFriend[m.sender_id] || 0) + 1;
+        });
+
+        renderBadge();
+        renderFriends();
+    }
+
+    async function refreshSocial() {
+        if (!currentUser) {
+            friends = [];
+            pendingRequests = [];
+            pendingOutgoing = {};
+            searchResults = [];
+            unreadByFriend = {};
+            renderFriends();
+            renderRequests();
+            renderSearchResults();
+            renderBadge();
+            closeChat();
+            return;
+        }
+
+        await Promise.all([loadFriends(), loadRequests(), loadUnread()]);
+    }
+
+    function stopRealtime() {
+        if (realtimeChannel) {
+            sb.removeChannel(realtimeChannel);
+            realtimeChannel = null;
+        }
+    }
+
+    function startRealtime() {
+        stopRealtime();
+        if (!currentUser) return;
+
+        const me = currentUser.id;
+
+        realtimeChannel = sb.channel('social-' + me)
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: 'receiver_id=eq.' + me
+            }, function (payload) {
+                const msg = payload.new;
+                if (activeFriend && msg.sender_id === activeFriend.id) {
+                    loadMessages();
+                    markChatRead();
+                } else {
+                    loadUnread();
+                }
+            })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: 'sender_id=eq.' + me
+            }, function (payload) {
+                if (activeFriend && payload.new.receiver_id === activeFriend.id) {
+                    loadMessages();
+                }
+            })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'friend_requests',
+                filter: 'to_id=eq.' + me
+            }, function () {
+                loadRequests();
+            })
+            .subscribe();
+    }
+
+    function formatMessageTime(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const now = new Date();
+        const minutes = d.getMinutes() < 10 ? '0' + d.getMinutes() : String(d.getMinutes());
+        const hm = d.getHours() + ':' + minutes;
+        if (d.toDateString() === now.toDateString()) return hm;
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+    }
+
+    function scrollChatToBottom() {
+        if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    function renderMessages(list) {
+        if (!chatMessagesBox) return;
+        chatMessagesBox.textContent = '';
+        if (chatEmpty) chatEmpty.hidden = list.length > 0;
+
+        list.forEach(function (m) {
+            const row = document.createElement('div');
+            row.className = 'chat-row' + (m.sender_id === currentUser.id ? ' chat-row--mine' : '');
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+            bubble.textContent = m.content;
+
+            const time = document.createElement('span');
+            time.className = 'chat-time';
+            time.textContent = formatMessageTime(m.created_at);
+
+            row.append(bubble, time);
+            chatMessagesBox.appendChild(row);
+        });
+
+        scrollChatToBottom();
+    }
+
+    async function loadMessages() {
+        if (!currentUser || !activeFriend) return;
+
+        const me = currentUser.id;
+        const other = activeFriend.id;
+        const filter = 'and(sender_id.eq.' + me + ',receiver_id.eq.' + other + ')' +
+            ',and(sender_id.eq.' + other + ',receiver_id.eq.' + me + ')';
+
+        const result = await sb.from('messages')
+            .select('id, sender_id, receiver_id, content, created_at')
+            .or(filter)
+            .order('created_at', { ascending: true })
+            .limit(200);
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '消息加载失败：' + socialError(result.error));
+            return;
+        }
+
+        setSocialMsg(chatMsg, '');
+        renderMessages(result.data || []);
+    }
+
+    async function markChatRead() {
+        if (!currentUser || !activeFriend) return;
+
+        const result = await sb.from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('receiver_id', currentUser.id)
+            .eq('sender_id', activeFriend.id)
+            .is('read_at', null);
+
+        if (result.error) console.warn('标记已读失败：', result.error);
+        await loadUnread();
+    }
+
+    function openChat(friend) {
+        activeFriend = friend;
+        if (friendsView) friendsView.hidden = true;
+        if (chatView) chatView.hidden = false;
+        if (chatName) chatName.textContent = friend.nickname;
+        fillAvatar(chatAvatar, friend, friend.nickname);
+        if (chatMessagesBox) chatMessagesBox.textContent = '';
+        if (chatEmpty) chatEmpty.hidden = true;
+        setSocialMsg(chatMsg, '');
+        if (chatInput) chatInput.value = '';
+
+        markChatRead().then(loadMessages).then(function () {
+            if (chatInput) chatInput.focus();
+        });
+    }
+
+    function closeChat() {
+        activeFriend = null;
+        if (chatView) chatView.hidden = true;
+        if (friendsView) friendsView.hidden = false;
+    }
+
+    async function addFriend(userId, button) {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        button.disabled = true;
+        const result = await sb.rpc('send_friend_request', { p_to: userId });
+
+        if (result.error) {
+            button.disabled = false;
+            setSocialMsg(friendSearchMsg, '发送失败：' + socialError(result.error));
+            return;
+        }
+
+        if (result.data === 'accepted') {
+            setSocialMsg(friendSearchMsg, '对方之前也申请过你，已经直接成为好友', 'success');
+            await refreshSocial();
+            renderSearchResults();
+            return;
+        }
+        if (result.data === 'already_friends') {
+            setSocialMsg(friendSearchMsg, '你们已经是好友了', 'success');
+            await refreshSocial();
+            renderSearchResults();
+            return;
+        }
+
+        pendingOutgoing[userId] = true;
+        setSocialMsg(friendSearchMsg, '好友申请已发送，等对方同意', 'success');
+        renderSearchResults();
+    }
+
+    if (friendSearchForm) {
+        friendSearchForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+
+            const query = friendSearchForm.query.value.trim();
+            setSocialMsg(friendSearchMsg, '');
+
+            if (!query) {
+                setSocialMsg(friendSearchMsg, '请输入昵称或完整邮箱');
+                return;
+            }
+
+            const byEmail = query.indexOf('@') >= 0;
+            if (!byEmail && query.length < 2) {
+                setSocialMsg(friendSearchMsg, '昵称至少输入 2 个字符');
+                return;
+            }
+
+            const submit = friendSearchForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+            submit.textContent = '搜索中…';
+
+            let rows = [];
+            if (byEmail) {
+                const result = await sb.rpc('find_user_by_email', { p_email: query });
+                if (result.error) {
+                    submit.disabled = false;
+                    submit.textContent = '搜索';
+                    setSocialMsg(friendSearchMsg, '搜索失败：' + socialError(result.error));
+                    return;
+                }
+                rows = result.data || [];
+            } else {
+                const result = await sb.from('profiles')
+                    .select('id, nickname, avatar_url, updated_at')
+                    .ilike('nickname', '%' + query + '%')
+                    .limit(20);
+
+                if (result.error) {
+                    submit.disabled = false;
+                    submit.textContent = '搜索';
+                    setSocialMsg(friendSearchMsg, '搜索失败：' + socialError(result.error));
+                    return;
+                }
+                rows = result.data || [];
+            }
+
+            submit.disabled = false;
+            submit.textContent = '搜索';
+
+            searchResults = rows.map(normalizeProfile);
+            renderSearchResults();
+
+            if (!searchResults.length) {
+                setSocialMsg(friendSearchMsg, '没有找到匹配的用户');
+            } else {
+                setSocialMsg(friendSearchMsg, '找到 ' + searchResults.length + ' 个用户', 'success');
+            }
+        });
+    }
+
+    if (friendResultsBox) {
+        friendResultsBox.addEventListener('click', function (e) {
+            const button = e.target.closest('[data-action="add-friend"]');
+            if (!button) return;
+            addFriend(button.dataset.userId, button);
+        });
+    }
+
+    if (friendRequestsBox) {
+        friendRequestsBox.addEventListener('click', async function (e) {
+            const acceptButton = e.target.closest('[data-action="accept-request"]');
+            const rejectButton = e.target.closest('[data-action="reject-request"]');
+            if (!acceptButton && !rejectButton) return;
+
+            const button = acceptButton || rejectButton;
+            const requestId = button.dataset.requestId;
+            button.disabled = true;
+
+            if (acceptButton) {
+                const result = await sb.rpc('accept_friend_request', { p_request_id: requestId });
+                if (result.error) {
+                    button.disabled = false;
+                    setSocialMsg(friendSearchMsg, '接受失败：' + socialError(result.error));
+                    return;
+                }
+                setSocialMsg(friendSearchMsg, '已接受好友申请', 'success');
+            } else {
+                const result = await sb.from('friend_requests')
+                    .update({ status: 'rejected' })
+                    .eq('id', requestId)
+                    .eq('to_id', currentUser.id);
+                if (result.error) {
+                    button.disabled = false;
+                    setSocialMsg(friendSearchMsg, '操作失败：' + socialError(result.error));
+                    return;
+                }
+                setSocialMsg(friendSearchMsg, '已忽略该申请');
+            }
+
+            await refreshSocial();
+            renderSearchResults();
+        });
+    }
+
+    if (friendsListBox) {
+        friendsListBox.addEventListener('click', function (e) {
+            const button = e.target.closest('[data-friend-id]');
+            if (!button) return;
+            const friend = friends.find(function (f) { return f.id === button.dataset.friendId; });
+            if (friend) openChat(friend);
+        });
+    }
+
+    if (chatBackBtn) {
+        chatBackBtn.addEventListener('click', function () {
+            closeChat();
+            refreshSocial();
+        });
+    }
+
+    if (chatForm) {
+        chatForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+            if (!activeFriend) return;
+
+            const text = chatInput.value.trim();
+            if (!text) return;
+            if (text.length > 2000) {
+                setSocialMsg(chatMsg, '消息最多 2000 个字');
+                return;
+            }
+
+            const submit = chatForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+
+            const result = await sb.from('messages').insert({
+                sender_id: currentUser.id,
+                receiver_id: activeFriend.id,
+                content: text
+            });
+
+            submit.disabled = false;
+
+            if (result.error) {
+                setSocialMsg(chatMsg, '发送失败：' + socialError(result.error));
+                return;
+            }
+
+            chatInput.value = '';
+            setSocialMsg(chatMsg, '');
+            await loadMessages();
+        });
+
+        // 回车发送，Shift+回车换行
+        chatInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (typeof chatForm.requestSubmit === 'function') {
+                    chatForm.requestSubmit();
+                } else {
+                    chatForm.querySelector('button[type="submit"]').click();
+                }
+            }
+        });
+    }
+
+    window.addEventListener('silgu:page', function (e) {
+        const name = e.detail && e.detail.name;
+        if (name !== 'friends') return;
+
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        refreshSocial();
+    });
 
     sb.auth.onAuthStateChange(function () {
         // 回调里直接调用其它 supabase 方法可能死锁，延后到当前事件结束
