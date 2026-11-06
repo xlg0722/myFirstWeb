@@ -871,6 +871,16 @@ button.friend-item:focus-visible {
     object-fit: cover;
 }
 
+/* 社区里点头像可以进入对方资料页 */
+.friend-avatar--link {
+    cursor: pointer;
+    transition: box-shadow 0.15s ease;
+}
+
+.friend-avatar--link:hover {
+    box-shadow: 0 0 0 2px rgba(180, 205, 255, 0.6);
+}
+
 .friend-name {
     flex: 1 1 auto;
     min-width: 0;
