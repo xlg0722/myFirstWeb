@@ -117,7 +117,6 @@
         if (navProfile) navProfile.hidden = !currentUser;
 
         if (currentUser) {
-            // 导航只显示头像 + 退出，不显示昵称；点头像进入个人资料
             const avatar = document.createElement('a');
             avatar.href = '#profile';
             avatar.className = 'nav-avatar';
@@ -138,13 +137,24 @@
                 avatar.textContent = initialOf();
             }
 
+            // 头像右侧显示昵称，点它也能进入个人资料
+            const name = document.createElement('a');
+            name.href = '#profile';
+            name.className = 'nav-account__name';
+            name.title = '个人资料';
+            name.textContent = nicknameOf();
+            name.addEventListener('click', function (e) {
+                e.preventDefault();
+                goPage('profile');
+            });
+
             const logout = document.createElement('button');
             logout.type = 'button';
             logout.className = 'nav-link nav-account__logout';
             logout.dataset.action = 'logout';
             logout.textContent = '退出';
 
-            accountBox.append(avatar, logout);
+            accountBox.append(avatar, name, logout);
             return;
         }
 
