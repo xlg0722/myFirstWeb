@@ -1188,6 +1188,17 @@ button.friend-item:focus-visible {
     background: rgba(40, 62, 104, 0.55);
 }
 
+/* 列表底部的加载更多 */
+.community-more {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 38px;
+    margin-top: 10px;
+    font-size: 13px;
+}
+
 .community-sort {
     flex: none;
     padding: 5px 26px 5px 9px;
