@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -18,6 +18,7 @@
             </a>
             <div class="nav-links">
                 <a href="#home" class="nav-link nav-link--active" data-page="home">首页</a>
+                <a href="#community" class="nav-link" data-page="community">社区</a>
                 <a href="#download" class="nav-link" data-page="download">下载</a>
                 <a href="#friends" class="nav-link" id="nav-friends" data-page="friends" hidden>好友<span class="nav-badge" id="friends-badge" hidden>0</span></a>
                 <a href="#profile" class="nav-link" id="nav-profile" data-page="profile" hidden>个人资料</a>
@@ -44,6 +45,12 @@
                         <span class="menu-button__title">你的世界</span>
                     </span>
                     <span class="menu-button__version">测试版 0.1</span>
+                </a>
+                <a class="menu-button" href="#community" data-page="community">
+                    <span class="menu-button__text">
+                        <span class="menu-button__eyebrow">社区广场</span>
+                        <span class="menu-button__title">进入社区</span>
+                    </span>
                 </a>
             </div>
         </div>
@@ -80,6 +87,39 @@
                 </button>
             </div>
             <p class="download-msg" id="download-msg"></p>
+        </div>
+    </section>
+
+    <!-- 社区 -->
+    <section class="page" id="page-community">
+        <div class="page-inner page-inner--wide">
+            <a class="back-link" href="#home" data-page="home">← 返回首页</a>
+            <h2 class="panel-title">社区</h2>
+
+            <div id="community-guest" hidden>
+                <p class="friends-empty">登录后就能在这里浏览大家的留言，也可以发布自己的消息。</p>
+                <div class="key-actions">
+                    <a class="friend-action community-login" href="#login" data-page="login">去登录</a>
+                </div>
+            </div>
+
+            <div id="community-main" hidden>
+                <form class="auth-form community-form" id="community-form" novalidate>
+                    <textarea class="chat-input community-input" id="community-input" rows="3"
+                              maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
+                    <div class="community-form__foot">
+                        <span class="community-count" id="community-count">0/500</span>
+                        <button class="code-send community-send" type="submit">发布</button>
+                    </div>
+                    <p class="auth-msg" id="community-msg" role="alert"></p>
+                </form>
+
+                <div class="friend-section">
+                    <h3 class="section-title">最新消息</h3>
+                    <div class="community-list" id="community-feed"></div>
+                    <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
+                </div>
+            </div>
         </div>
     </section>
 
