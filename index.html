@@ -254,6 +254,30 @@
         </div>
     </section>
 
+    <!-- 他人资料 -->
+    <section class="page" id="page-user">
+        <div class="page-inner">
+            <a class="back-link" href="#community" data-page="community">← 返回社区</a>
+            <h2 class="panel-title">用户资料</h2>
+
+            <div class="profile-head">
+                <div class="profile-avatar">
+                    <img class="profile-avatar__img" id="user-avatar-img" alt="" hidden>
+                    <span class="profile-avatar__fallback" id="user-avatar-fallback"></span>
+                </div>
+                <div class="profile-meta">
+                    <p class="profile-name" id="user-name"></p>
+                    <p class="profile-email" id="user-email">社区用户</p>
+                </div>
+            </div>
+
+            <div class="key-actions">
+                <button class="friend-action" id="user-add-friend" type="button">加好友</button>
+            </div>
+            <p class="auth-msg" id="user-msg" role="alert"></p>
+        </div>
+    </section>
+
     <!-- 好友与聊天 -->
     <section class="page" id="page-friends">
         <div class="page-inner page-inner--wide">
@@ -289,17 +313,6 @@
                 <div class="friend-section" id="blocked-wrap" hidden>
                     <h3 class="section-title">黑名单</h3>
                     <div class="friend-list" id="blocked-list"></div>
-                </div>
-
-                <div class="friend-section">
-                    <h3 class="section-title">聊天密钥</h3>
-                    <p class="friends-empty">聊天内容在本机加密后才上传，密钥会自动备份到你的账号，换设备或清理浏览器缓存后自动恢复，无需手动操作。如果之前导出过旧密钥，导入后可以恢复更早的消息。</p>
-                    <div class="key-actions">
-                        <button class="friend-action" type="button" id="key-export">导出密钥</button>
-                        <button class="friend-action" type="button" id="key-import">导入密钥</button>
-                        <input type="file" id="key-file" accept="application/json" hidden>
-                    </div>
-                    <p class="auth-msg" id="key-msg" role="alert"></p>
                 </div>
             </div>
 
