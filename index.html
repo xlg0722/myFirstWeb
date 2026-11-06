@@ -152,10 +152,6 @@
         <div class="page-inner">
             <a class="back-link" href="#home" data-page="home">← 返回首页</a>
             <h2 class="panel-title">登录</h2>
-            <div class="auth-tabs">
-                <button class="auth-tab is-active" id="login-tab-email" type="button">邮箱登录</button>
-                <button class="auth-tab" id="login-tab-phone" type="button">手机号登录</button>
-            </div>
             <form class="auth-form" id="login-form" autocomplete="on" novalidate>
                 <label class="field">
                     <span class="field__label">邮箱</span>
@@ -168,19 +164,9 @@
                 <button class="menu-button auth-submit" type="submit">登录</button>
                 <p class="auth-msg" role="alert"></p>
                 <p class="auth-switch">还没有账号？<a href="#register" data-page="register">注册</a></p>
-            </form>
-            <form class="auth-form" id="phone-login-form" autocomplete="on" novalidate hidden>
-                <label class="field">
-                    <span class="field__label">手机号</span>
-                    <input class="field__input" type="tel" name="phone" inputmode="tel" maxlength="20" placeholder="例如 13800138000" autocomplete="tel" required>
-                </label>
-                <label class="field">
-                    <span class="field__label">密码</span>
-                    <input class="field__input" type="password" name="password" autocomplete="current-password" required>
-                </label>
-                <button class="menu-button auth-submit" type="submit">登录</button>
-                <p class="auth-msg" role="alert"></p>
-                <p class="auth-switch">还没有账号？<a href="#register" data-page="register">注册</a></p>
+                <p class="auth-switch auth-switch--mail">
+                    <a class="mail-register" href="https://wx.mail.qq.com/" target="_blank" rel="noopener">没有邮箱？点击前往注册</a>
+                </p>
             </form>
         </div>
     </section>
@@ -190,10 +176,6 @@
         <div class="page-inner">
             <a class="back-link" href="#home" data-page="home">← 返回首页</a>
             <h2 class="panel-title">注册</h2>
-            <div class="auth-tabs">
-                <button class="auth-tab is-active" id="register-tab-email" type="button">邮箱注册</button>
-                <button class="auth-tab" id="register-tab-phone" type="button">手机号注册</button>
-            </div>
             <form class="auth-form" id="register-form" novalidate>
                 <label class="field">
                     <span class="field__label">邮箱</span>
@@ -217,23 +199,9 @@
                 <button class="menu-button auth-submit" type="submit">注册并登录</button>
                 <p class="auth-msg" role="alert"></p>
                 <p class="auth-switch">已有账号？<a href="#login" data-page="login">登录</a></p>
-            </form>
-            <form class="auth-form" id="phone-register-form" novalidate hidden>
-                <label class="field">
-                    <span class="field__label">手机号</span>
-                    <input class="field__input" type="tel" name="phone" inputmode="tel" maxlength="20" placeholder="例如 13800138000" autocomplete="tel" required>
-                </label>
-                <label class="field">
-                    <span class="field__label">密码</span>
-                    <input class="field__input" type="password" name="password" autocomplete="new-password" required>
-                </label>
-                <label class="field">
-                    <span class="field__label">确认密码</span>
-                    <input class="field__input" type="password" name="confirm" autocomplete="new-password" required>
-                </label>
-                <button class="menu-button auth-submit" type="submit">注册并登录</button>
-                <p class="auth-msg" role="alert"></p>
-                <p class="auth-switch">已有账号？<a href="#login" data-page="login">登录</a></p>
+                <p class="auth-switch auth-switch--mail">
+                    <a class="mail-register" href="https://wx.mail.qq.com/" target="_blank" rel="noopener">没有邮箱？点击前往注册</a>
+                </p>
             </form>
         </div>
     </section>
