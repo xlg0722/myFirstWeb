@@ -88,6 +88,8 @@
     const communityEmpty = document.getElementById('community-empty');
     const communityGuest = document.getElementById('community-guest');
     const communityMain = document.getElementById('community-main');
+    const communityDetailEmpty = document.getElementById('community-detail-empty');
+    const communityDetailBody = document.getElementById('community-detail-body');
 
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
@@ -111,6 +113,7 @@
     let communityPosts = [];
     let communityRequestId = 0;
     let communityLoadedAt = 0;
+    let activeCommunityPostId = null;
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -2006,8 +2009,11 @@
         if (communityEmpty) communityEmpty.hidden = communityPosts.length > 0;
 
         communityPosts.forEach(function (post) {
-            const item = document.createElement('div');
-            item.className = 'community-post';
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'community-post community-post--compact';
+            item.dataset.postId = post.id;
+            if (post.id === activeCommunityPostId) item.classList.add('is-active');
 
             const head = document.createElement('div');
             head.className = 'community-post__head';
@@ -2023,78 +2029,203 @@
             name.className = 'community-post__name';
             name.textContent = post.author.nickname;
 
-            const time = document.createElement('span');
-            time.className = 'community-post__time';
-            time.textContent = formatMessageTime(post.created_at);
-
-            meta.append(name, time);
+            meta.append(name);
             head.append(avatar, meta);
 
-            const text = document.createElement('p');
-            text.className = 'community-post__text';
-            text.textContent = post.content;
+            // 列表里只显示一行预览，超出用省略号
+            const preview = document.createElement('p');
+            preview.className = 'community-post__preview';
+            preview.textContent = post.content;
 
-            const actions = document.createElement('div');
-            actions.className = 'community-post__actions';
-
-            const commentBtn = document.createElement('button');
-            commentBtn.type = 'button';
-            commentBtn.className = 'friend-action';
-            commentBtn.textContent = post.comments_count ? '评论 ' + post.comments_count : '评论';
-            actions.appendChild(commentBtn);
-
-            // 只有自己的消息可以删除
-            if (currentUser && post.author_id === currentUser.id) {
-                const deleteBtn = document.createElement('button');
-                deleteBtn.type = 'button';
-                deleteBtn.className = 'friend-action community-delete';
-                deleteBtn.textContent = '删除';
-                deleteBtn.addEventListener('click', function () {
-                    deleteCommunityPost(post);
-                });
-                actions.appendChild(deleteBtn);
-            }
-
-            const comments = document.createElement('div');
-            comments.className = 'community-comments';
-            comments.hidden = true;
-
-            const commentList = document.createElement('div');
-            commentList.className = 'community-comments__list';
-
-            const commentForm = document.createElement('form');
-            commentForm.className = 'community-comment-form';
-            commentForm.noValidate = true;
-
-            const commentInput = document.createElement('input');
-            commentInput.type = 'text';
-            commentInput.className = 'field__input community-comment-input';
-            commentInput.maxLength = 300;
-            commentInput.placeholder = '写下你的评论…';
-            commentInput.autocomplete = 'off';
-
-            const commentSend = document.createElement('button');
-            commentSend.type = 'submit';
-            commentSend.className = 'code-send';
-            commentSend.textContent = '发送';
-
-            commentForm.append(commentInput, commentSend);
-            comments.append(commentList, commentForm);
-
-            commentBtn.addEventListener('click', function () {
-                const opening = comments.hidden;
-                comments.hidden = !opening;
-                if (opening) loadCommunityComments(post, commentList);
+            item.append(head, preview);
+            item.addEventListener('click', function () {
+                openCommunityPost(post);
             });
 
-            commentForm.addEventListener('submit', function (e) {
-                e.preventDefault();
-                sendCommunityComment(post, commentInput, commentSend, commentList, commentBtn);
-            });
-
-            item.append(head, text, actions, comments);
             communityFeed.appendChild(item);
         });
+    }
+
+    function clearCommunityDetail() {
+        activeCommunityPostId = null;
+        if (communityDetailBody) {
+            communityDetailBody.textContent = '';
+            communityDetailBody.hidden = true;
+        }
+        if (communityDetailEmpty) communityDetailEmpty.hidden = false;
+    }
+
+    function openCommunityPost(post) {
+        activeCommunityPostId = post.id;
+
+        // 刷新左侧选中态
+        if (communityFeed) {
+            Array.prototype.forEach.call(communityFeed.children, function (node) {
+                node.classList.toggle('is-active', node.dataset.postId === post.id);
+            });
+        }
+
+        if (!communityDetailBody) return;
+        if (communityDetailEmpty) communityDetailEmpty.hidden = true;
+        communityDetailBody.hidden = false;
+        communityDetailBody.textContent = '';
+
+        const head = document.createElement('div');
+        head.className = 'community-detail__head';
+
+        const avatar = document.createElement('span');
+        avatar.className = 'chat-avatar';
+        fillAvatar(avatar, post.author, post.author.nickname);
+
+        const meta = document.createElement('div');
+        meta.className = 'community-detail__meta';
+
+        const name = document.createElement('span');
+        name.className = 'community-detail__name';
+        name.textContent = post.author.nickname;
+
+        const time = document.createElement('span');
+        time.className = 'community-detail__time';
+        time.textContent = formatMessageTime(post.created_at);
+
+        meta.append(name, time);
+        head.append(avatar, meta);
+
+        const text = document.createElement('p');
+        text.className = 'community-detail__text';
+        text.textContent = post.content;
+
+        const actions = document.createElement('div');
+        actions.className = 'community-post__actions';
+
+        // 点赞只增不减，热度就是点赞数
+        const likeBtn = document.createElement('button');
+        likeBtn.type = 'button';
+        likeBtn.className = 'friend-action community-like';
+        likeBtn.textContent = post.liked
+            ? '已点赞 ' + (post.likes_count || 0)
+            : '点赞 ' + (post.likes_count || 0);
+        if (post.liked) likeBtn.classList.add('is-active');
+        likeBtn.addEventListener('click', function () {
+            likeCommunityPost(post, likeBtn);
+        });
+        actions.appendChild(likeBtn);
+
+        // 收藏只有自己能看到
+        const bookmarkBtn = document.createElement('button');
+        bookmarkBtn.type = 'button';
+        bookmarkBtn.className = 'friend-action community-bookmark';
+        bookmarkBtn.textContent = post.bookmarked ? '已收藏' : '收藏';
+        if (post.bookmarked) bookmarkBtn.classList.add('is-active');
+        bookmarkBtn.addEventListener('click', function () {
+            toggleCommunityBookmark(post, bookmarkBtn);
+        });
+        actions.appendChild(bookmarkBtn);
+
+        if (currentUser && post.author_id === currentUser.id) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'friend-action community-delete';
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', function () {
+                deleteCommunityPost(post);
+            });
+            actions.appendChild(deleteBtn);
+        }
+
+        const comments = document.createElement('div');
+        comments.className = 'community-comments';
+
+        const commentsTitle = document.createElement('h3');
+        commentsTitle.className = 'section-title';
+        commentsTitle.textContent = '评论';
+
+        const commentList = document.createElement('div');
+        commentList.className = 'community-comments__list';
+
+        const commentForm = document.createElement('form');
+        commentForm.className = 'community-comment-form';
+        commentForm.noValidate = true;
+
+        const commentInput = document.createElement('input');
+        commentInput.type = 'text';
+        commentInput.className = 'field__input community-comment-input';
+        commentInput.maxLength = 300;
+        commentInput.placeholder = '写下你的评论…';
+        commentInput.autocomplete = 'off';
+
+        const commentSend = document.createElement('button');
+        commentSend.type = 'submit';
+        commentSend.className = 'code-send';
+        commentSend.textContent = '发送';
+
+        commentForm.append(commentInput, commentSend);
+        comments.append(commentsTitle, commentList, commentForm);
+
+        commentForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            sendCommunityComment(post, commentInput, commentSend, commentList);
+        });
+
+        communityDetailBody.append(head, text, actions, comments);
+
+        loadCommunityComments(post, commentList);
+
+        // 窄屏是上下布局，点开消息后滚到详情
+        if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+            communityDetailBody.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    async function likeCommunityPost(post, button) {
+        if (!currentUser || post.liked) return;
+
+        button.disabled = true;
+
+        const result = await sb.from('community_likes').insert({
+            post_id: post.id,
+            user_id: currentUser.id
+        });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        post.liked = true;
+        post.likes_count = (post.likes_count || 0) + 1;
+        button.textContent = '已点赞 ' + post.likes_count;
+        button.classList.add('is-active');
+        setSocialMsg(communityMsg, '');
+    }
+
+    async function toggleCommunityBookmark(post, button) {
+        if (!currentUser) return;
+
+        button.disabled = true;
+
+        const result = post.bookmarked
+            ? await sb.from('community_bookmarks').delete()
+                .eq('post_id', post.id)
+                .eq('user_id', currentUser.id)
+            : await sb.from('community_bookmarks').insert({
+                post_id: post.id,
+                user_id: currentUser.id
+            });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        post.bookmarked = !post.bookmarked;
+        button.textContent = post.bookmarked ? '已收藏' : '收藏';
+        button.classList.toggle('is-active', post.bookmarked);
+        setSocialMsg(communityMsg, post.bookmarked ? '已收藏' : '已取消收藏', 'success');
     }
 
     // 上海时区当天 0 点对应的 UTC 时间
@@ -2191,7 +2322,7 @@
         });
     }
 
-    async function sendCommunityComment(post, input, button, list, countBtn) {
+    async function sendCommunityComment(post, input, button, list) {
         if (!currentUser || !input) return;
 
         const text = (input.value || '').trim();
@@ -2217,8 +2348,6 @@
         }
 
         input.value = '';
-        post.comments_count = (post.comments_count || 0) + 1;
-        if (countBtn) countBtn.textContent = '评论 ' + post.comments_count;
         setSocialMsg(communityMsg, '');
         await loadCommunityComments(post, list);
     }
@@ -2236,6 +2365,8 @@
             setSocialMsg(communityMsg, communityError(result.error));
             return;
         }
+
+        if (activeCommunityPostId === post.id) clearCommunityDetail();
 
         setSocialMsg(communityMsg, '已删除', 'success');
         await loadCommunity(true);
@@ -2280,12 +2411,20 @@
             ? sb.from('profiles').select('id, nickname, avatar_url, updated_at').in('id', authorIds)
             : Promise.resolve({ data: [], error: null });
 
-        // 评论数按 post_id 统计（只取 post_id 字段，数据量很小）
-        const commentsPromise = postIds.length
-            ? sb.from('community_comments').select('post_id').in('post_id', postIds)
+        // 点赞数（热度）、我的点赞、我的收藏，只取 post_id 字段
+        const likesPromise = postIds.length
+            ? sb.from('community_likes').select('post_id').in('post_id', postIds)
             : Promise.resolve({ data: [], error: null });
 
-        const results = await Promise.all([peoplePromise, commentsPromise]);
+        const myLikesPromise = postIds.length
+            ? sb.from('community_likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const bookmarksPromise = postIds.length
+            ? sb.from('community_bookmarks').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const results = await Promise.all([peoplePromise, likesPromise, myLikesPromise, bookmarksPromise]);
 
         if (reqId !== communityRequestId) return;
 
@@ -2296,10 +2435,25 @@
             });
         }
 
-        let commentCounts = {};
+        // 热度 = 点赞数
+        let likeCounts = {};
         if (!results[1].error) {
-            (results[1].data || []).forEach(function (comment) {
-                commentCounts[comment.post_id] = (commentCounts[comment.post_id] || 0) + 1;
+            (results[1].data || []).forEach(function (like) {
+                likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1;
+            });
+        }
+
+        let likedIds = {};
+        if (!results[2].error) {
+            (results[2].data || []).forEach(function (like) {
+                likedIds[like.post_id] = true;
+            });
+        }
+
+        let bookmarkedIds = {};
+        if (!results[3].error) {
+            (results[3].data || []).forEach(function (mark) {
+                bookmarkedIds[mark.post_id] = true;
             });
         }
 
@@ -2309,7 +2463,9 @@
                 author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
-                comments_count: commentCounts[row.id] || 0,
+                likes_count: likeCounts[row.id] || 0,
+                liked: !!likedIds[row.id],
+                bookmarked: !!bookmarkedIds[row.id],
                 author: authors[row.author_id] || {
                     id: row.author_id,
                     nickname: '玩家',
@@ -2322,6 +2478,15 @@
 
         communityLoadedAt = Date.now();
         renderCommunityPosts();
+
+        // 当前选中的消息如果已不存在，清空右侧
+        if (activeCommunityPostId) {
+            const stillThere = communityPosts.some(function (item) {
+                return item.id === activeCommunityPostId;
+            });
+            if (!stillThere) clearCommunityDetail();
+        }
+
         setSocialMsg(communityMsg, '');
     }
 
