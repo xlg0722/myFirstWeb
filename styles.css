@@ -1223,6 +1223,23 @@ button.friend-item:focus-visible {
     color: #e6eeff;
 }
 
+/* 左侧卡片右上角：收藏星标 + 点赞数 */
+.community-post__marks {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.community-post__star {
+    color: #ffd479;
+}
+
+.community-post__likes {
+    color: rgba(255, 154, 162, 0.8);
+}
+
 .community-post__time {
     font-size: 11px;
     color: rgba(170, 190, 225, 0.42);
