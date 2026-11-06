@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 登录 / 注册 / 会话保持 / 个人资料 / 注销账号 / 下载鉴权
  * 依赖：@supabase/supabase-js CDN、supabase-config.js
  */
@@ -100,6 +100,7 @@
     const communityAttachName = document.getElementById('community-attach-name');
     const communityAttachList = document.getElementById('community-attach-list');
     const communitySortSelect = document.getElementById('community-sort');
+    const communityMoreBtn = document.getElementById('community-more');
     const communityBookmarkFilter = document.getElementById('community-bookmark-filter');
 
     const AVATAR_BUCKET = 'avatars';
@@ -109,6 +110,9 @@
     // 社区动态和聊天共用的图片/视频存储桶
     const MEDIA_BUCKET = 'media';
     const MEDIA_MAX_SIZE = 25 * 1024 * 1024;
+
+    // 社区列表首屏只加载 20 条，滚动到底再追加
+    const COMMUNITY_PAGE_SIZE = 20;
 
     let currentUser = null;
     let currentProfile = null;
@@ -133,6 +137,8 @@
     let communityFiles = [];     // 待发布的图片/视频（最多 9 个）
     let communitySort = 'new';   // new / old / hot / cold
     let communityBookmarkOnly = false;  // 只看自己收藏的帖子
+    let communityHasMore = false;       // 是否还有更早的帖子
+    let communityLoadingMore = false;   // 防止滚动重复触发
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -635,11 +641,14 @@
             showMessage(profileForm, '');
             avatarButton.disabled = true;
 
+            // 头像最长边压到 512px，省流量
+            const avatarFile = await compressImage(file, 512);
+
             // 固定路径 + upsert：同一账号只保留一张头像，覆盖旧图
             const path = currentUser.id + '/avatar';
             const upload = await sb.storage
                 .from(AVATAR_BUCKET)
-                .upload(path, file, { upsert: true, contentType: file.type, cacheControl: '3600' });
+                .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type, cacheControl: '3600' });
 
             if (upload.error) {
                 avatarButton.disabled = false;
@@ -2121,8 +2130,9 @@
         return list;
     }
 
-    function renderCommunityPosts() {
+    function renderCommunityPosts(preserveScroll) {
         if (!communityFeed) return;
+        const keep = preserveScroll ? communityFeed.scrollTop : 0;
         communityFeed.textContent = '';
 
         const list = sortCommunityPosts();
@@ -2190,6 +2200,17 @@
 
             communityFeed.appendChild(item);
         });
+
+        if (preserveScroll) communityFeed.scrollTop = keep;
+        renderCommunityMore();
+    }
+
+    // 「加载更多」按钮的显示与加载中状态
+    function renderCommunityMore() {
+        if (!communityMoreBtn) return;
+        communityMoreBtn.hidden = !communityHasMore;
+        communityMoreBtn.disabled = communityLoadingMore;
+        communityMoreBtn.textContent = communityLoadingMore ? '加载中…' : '加载更多';
     }
 
     function clearCommunityDetail() {
@@ -2206,7 +2227,8 @@
             const video = document.createElement('video');
             video.className = 'community-media__thumb';
             video.src = item.url;
-            video.preload = 'metadata';
+            // 九宫格里不预加载视频，点开查看器才真正拉流
+            video.preload = 'none';
             video.muted = true;
             video.playsInline = true;
             return video;
@@ -2672,29 +2694,46 @@
         await loadCommunity(true);
     }
 
-    async function loadCommunity(force) {
-        renderCommunityState();
+    async function loadCommunity(force, append) {
+        if (!append) renderCommunityState();
 
         if (!currentUser) {
             communityPosts = [];
+            communityHasMore = false;
             renderCommunityPosts();
             return;
         }
-        if (!force && communityLoadedAt && Date.now() - communityLoadedAt < 10000) return;
+        if (!force && !append && communityLoadedAt && Date.now() - communityLoadedAt < 10000) return;
+        if (append && (communityLoadingMore || !communityHasMore)) return;
+
+        if (append) {
+            communityLoadingMore = true;
+            renderCommunityMore();
+        }
 
         const reqId = ++communityRequestId;
+        const offset = append ? communityPosts.length : 0;
 
         const result = await sb
             .from('community_posts')
             .select('id, content, created_at, author_id, media')
             .order('created_at', { ascending: false })
-            .limit(100);
+            .range(offset, offset + COMMUNITY_PAGE_SIZE - 1);
 
-        if (reqId !== communityRequestId) return;
+        if (reqId !== communityRequestId) {
+            communityLoadingMore = false;
+            return;
+        }
 
         if (result.error) {
-            communityPosts = [];
-            renderCommunityPosts();
+            communityLoadingMore = false;
+            if (!append) {
+                communityPosts = [];
+                communityHasMore = false;
+                renderCommunityPosts();
+            } else {
+                renderCommunityMore();
+            }
             setSocialMsg(communityMsg, communityError(result.error));
             return;
         }
@@ -2726,7 +2765,10 @@
 
         const results = await Promise.all([peoplePromise, likesPromise, myLikesPromise, bookmarksPromise]);
 
-        if (reqId !== communityRequestId) return;
+        if (reqId !== communityRequestId) {
+            communityLoadingMore = false;
+            return;
+        }
 
         let authors = {};
         if (!results[0].error) {
@@ -2757,7 +2799,7 @@
             });
         }
 
-        communityPosts = rows.map(function (row) {
+        const mapped = rows.map(function (row) {
             const media = Array.isArray(row.media) ? row.media : [];
             return {
                 id: row.id,
@@ -2786,8 +2828,11 @@
             };
         });
 
+        communityPosts = append ? communityPosts.concat(mapped) : mapped;
+        communityHasMore = rows.length === COMMUNITY_PAGE_SIZE;
+        communityLoadingMore = false;
         communityLoadedAt = Date.now();
-        renderCommunityPosts();
+        renderCommunityPosts(append);
 
         // 当前选中的消息如果已不存在，清空右侧
         if (activeCommunityPostId) {
@@ -2820,6 +2865,60 @@
         return file.name || (mediaKind(file) === 'video' ? '视频' : '图片');
     }
 
+    // 上传前把图片最长边压到 maxEdge、转成 WebP；失败或压缩后更大时用原图
+    function compressImage(file, maxEdge) {
+        if (!file || file.type.indexOf('image/') !== 0) return Promise.resolve(file);
+        // 动图不处理，避免 GIF 变成静态图
+        if (file.type === 'image/gif') return Promise.resolve(file);
+
+        return new Promise(function (resolve) {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+
+                const limit = maxEdge || 1600;
+                const longest = Math.max(img.naturalWidth, img.naturalHeight) || 1;
+                const scale = Math.min(1, limit / longest);
+
+                // 尺寸和体积都不大就不重新编码
+                if (scale >= 1 && file.size <= 600 * 1024) {
+                    resolve(file);
+                    return;
+                }
+
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+                    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    canvas.toBlob(function (blob) {
+                        if (!blob || blob.size >= file.size) {
+                            resolve(file);
+                            return;
+                        }
+                        const name = (file.name || 'image').replace(/\.\w+$/, '') + '.webp';
+                        resolve(new File([blob], name, {
+                            type: 'image/webp',
+                            lastModified: Date.now()
+                        }));
+                    }, 'image/webp', 0.82);
+                } catch (err) {
+                    resolve(file);
+                }
+            };
+
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                resolve(file);
+            };
+
+            img.src = url;
+        });
+    }
+
     // 上传到公开的 media 桶，返回可直接访问的地址和类型
     async function uploadMediaFile(file, prefix) {
         if (!currentUser) throw new Error('请先登录');
@@ -2828,14 +2927,17 @@
         if (!kind) throw new Error('只支持图片或视频');
         if (file.size > MEDIA_MAX_SIZE) throw new Error('文件不能超过 25MB');
 
-        const rawExt = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        // 图片先压缩，视频只做大小限制
+        const uploadFile = kind === 'image' ? await compressImage(file, 1600) : file;
+
+        const rawExt = (uploadFile.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         const ext = rawExt || (kind === 'video' ? 'mp4' : 'jpg');
         const path = currentUser.id + '/' + prefix + '-' + Date.now() + '-' +
             Math.random().toString(36).slice(2, 8) + '.' + ext;
 
-        const upload = await sb.storage.from(MEDIA_BUCKET).upload(path, file, {
+        const upload = await sb.storage.from(MEDIA_BUCKET).upload(path, uploadFile, {
             upsert: false,
-            contentType: file.type,
+            contentType: uploadFile.type,
             cacheControl: '31536000'
         });
 
@@ -2858,6 +2960,7 @@
         } else {
             el.alt = '图片';
             el.loading = 'lazy';
+            el.decoding = 'async';
         }
         return el;
     }
@@ -2949,6 +3052,22 @@
             communityBookmarkFilter.setAttribute('aria-pressed', communityBookmarkOnly ? 'true' : 'false');
             if (communityFeed) communityFeed.scrollTop = 0;
             renderCommunityPosts();
+        });
+    }
+
+    if (communityMoreBtn) {
+        communityMoreBtn.addEventListener('click', function () {
+            loadCommunity(false, true);
+        });
+    }
+
+    // 列表滚到接近底部时自动加载下一页
+    if (communityFeed) {
+        communityFeed.addEventListener('scroll', function () {
+            if (!communityHasMore || communityLoadingMore) return;
+            if (communityFeed.scrollTop + communityFeed.clientHeight >= communityFeed.scrollHeight - 160) {
+                loadCommunity(false, true);
+            }
         });
     }
 
