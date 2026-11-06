@@ -419,7 +419,7 @@ img {
 .auth-form {
     display: flex;
     flex-direction: column;
-    gap: 14px;
+} gap: 14px;
     width: 100%;
 }
 
@@ -1086,7 +1086,7 @@ button.friend-item:focus-visible {
 
 /* ===== 社区 ===== */
 .community-form {
-    margin-top: 2px;
+    margin: 2px 0 16px;
 }
 
 .community-input {
@@ -1248,17 +1248,31 @@ button.friend-item:focus-visible {
     display: flex;
     align-items: stretch;
     gap: 20px;
-    margin-top: 14px;
+    height: calc(100vh - 224px);
+    min-height: 380px;
 }
 
 .community-left {
+    display: flex;
     flex: 1 1 42%;
+    flex-direction: column;
     min-width: 0;
+    overflow: hidden;
+}
+
+/* 左侧列表独立滚动，发布框固定在顶部 */
+.community-left .community-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .community-right {
     flex: 1 1 58%;
     min-width: 0;
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 /* 中间那条分隔线 */
@@ -1339,6 +1353,18 @@ button.friend-item:focus-visible {
     .community-layout {
         flex-direction: column;
         gap: 16px;
+        height: auto;
+        min-height: 0;
+    }
+
+    .community-left,
+    .community-right {
+        overflow: visible;
+    }
+
+    .community-left .community-list {
+        overflow: visible;
+        padding-right: 0;
     }
 
     .community-divider {
