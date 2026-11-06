@@ -286,7 +286,7 @@
     const pages = document.querySelectorAll('.page');
     const links = document.querySelectorAll('[data-page]');
 
-    const PAGE_NAMES = ['home', 'download', 'versions', 'login', 'register', 'verify'];
+    const PAGE_NAMES = ['home', 'download', 'versions', 'login', 'register', 'profile', 'verify'];
 
     function showPage(name) {
         // 版本列表属于下载流程，导航高亮仍停在「下载」
