@@ -1164,3 +1164,77 @@ button.friend-item:focus-visible {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
+
+.community-post__actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.community-delete {
+    color: #ff9aa2;
+    border-color: rgba(229, 89, 107, 0.4);
+}
+
+.community-delete:hover {
+    border-color: rgba(255, 154, 162, 0.75);
+    background: rgba(70, 26, 34, 0.45);
+}
+
+.community-comments {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(158, 184, 232, 0.16);
+}
+
+.community-comments__list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: rgba(186, 204, 235, 0.55);
+}
+
+.community-comments__empty {
+    font-size: 12.5px;
+    color: rgba(186, 204, 235, 0.45);
+}
+
+.community-comment__head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.community-comment__name {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #dfe8ff;
+}
+
+.community-comment__time {
+    font-size: 11px;
+    color: rgba(170, 190, 225, 0.42);
+}
+
+.community-comment__text {
+    margin-top: 2px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: rgba(223, 232, 255, 0.85);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.community-comment-form {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.community-comment-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 12px;
+    font-size: 13px;
+}
