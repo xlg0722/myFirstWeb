@@ -1094,7 +1094,7 @@
         const result = await sb.from('messages')
             .select('id, sender_id, receiver_id, content, created_at')
             .or(filter)
-            .order('created_at', { ascending: true })
+            .order('created_at', { ascending: false })
             .limit(200);
 
         if (result.error) {
@@ -1103,7 +1103,8 @@
         }
 
         setSocialMsg(chatMsg, '');
-        renderMessages(result.data || []);
+        // 取最近 200 条后再正序展示
+        renderMessages((result.data || []).slice().reverse());
     }
 
     async function markChatRead() {
