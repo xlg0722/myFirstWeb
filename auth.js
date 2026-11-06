@@ -253,8 +253,8 @@
                 showMessage(registerForm, '请先点击「发送验证码」');
                 return;
             }
-            if (!/^\d{6,8}$/.test(token)) {
-                showMessage(registerForm, '请输入 6-8 位数字验证码');
+            if (!/^\d{8}$/.test(token)) {
+                showMessage(registerForm, '请输入 8 位数字验证码');
                 return;
             }
 
