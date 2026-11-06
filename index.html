@@ -104,18 +104,18 @@
             </div>
 
             <div id="community-main" hidden>
-                <form class="auth-form community-form" id="community-form" novalidate>
-                    <textarea class="chat-input community-input" id="community-input" rows="3"
-                              maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
-                    <div class="community-form__foot">
-                        <span class="community-count" id="community-count">0/500</span>
-                        <button class="code-send community-send" type="submit">发布</button>
-                    </div>
-                    <p class="auth-msg" id="community-msg" role="alert"></p>
-                </form>
-
                 <div class="community-layout">
                     <div class="community-left">
+                        <form class="auth-form community-form" id="community-form" novalidate>
+                            <textarea class="chat-input community-input" id="community-input" rows="3"
+                                      maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
+                            <div class="community-form__foot">
+                                <span class="community-count" id="community-count">0/500</span>
+                                <button class="code-send community-send" type="submit">发布</button>
+                            </div>
+                            <p class="auth-msg" id="community-msg" role="alert"></p>
+                        </form>
+
                         <h3 class="section-title">最新消息</h3>
                         <div class="community-list" id="community-feed"></div>
                         <p class="friends-empty" id="community-empty" hidden>还没有人发言，来发第一条吧</p>
