@@ -70,6 +70,11 @@
     const chatForm = document.getElementById('chat-form');
     const chatInput = document.getElementById('chat-input');
     const chatMsg = document.getElementById('chat-msg');
+    const chatAttachBtn = document.getElementById('chat-attach');
+    const chatFileInput = document.getElementById('chat-file');
+    const chatAttachBar = document.getElementById('chat-attach-bar');
+    const chatAttachName = document.getElementById('chat-attach-name');
+    const chatAttachClear = document.getElementById('chat-attach-clear');
     const chatBlockBtn = document.getElementById('chat-block');
     const chatReportBtn = document.getElementById('chat-report');
     const blockedWrap = document.getElementById('blocked-wrap');
@@ -90,10 +95,18 @@
     const communityMain = document.getElementById('community-main');
     const communityDetailEmpty = document.getElementById('community-detail-empty');
     const communityDetailBody = document.getElementById('community-detail-body');
+    const communityAttachBtn = document.getElementById('community-attach');
+    const communityFileInput = document.getElementById('community-file');
+    const communityAttachName = document.getElementById('community-attach-name');
+    const communityAttachClear = document.getElementById('community-attach-clear');
 
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
     const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+    // 社区动态和聊天共用的图片/视频存储桶
+    const MEDIA_BUCKET = 'media';
+    const MEDIA_MAX_SIZE = 25 * 1024 * 1024;
 
     let currentUser = null;
     let currentProfile = null;
@@ -108,12 +121,14 @@
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
     let chatKeyCache = {};       // friend_id -> AES-GCM CryptoKey
     let localKeyPair = null;     // 本机 ECDH 密钥对
+    let chatFile = null;         // 待发送的图片/视频
 
     // 社区
     let communityPosts = [];
     let communityRequestId = 0;
     let communityLoadedAt = 0;
     let activeCommunityPostId = null;
+    let communityFile = null;
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -1474,7 +1489,17 @@
 
             const bubble = document.createElement('div');
             bubble.className = 'chat-bubble';
-            bubble.textContent = texts[index];
+
+            if (m.media_url) {
+                bubble.appendChild(createMediaElement(m.media_url, m.media_type, 'chat-media'));
+            }
+
+            if (texts[index]) {
+                const textEl = document.createElement('span');
+                textEl.className = 'chat-bubble__text';
+                textEl.textContent = texts[index];
+                bubble.appendChild(textEl);
+            }
 
             const time = document.createElement('span');
             time.className = 'chat-time';
@@ -1526,7 +1551,7 @@
             ',and(sender_id.eq.' + other + ',receiver_id.eq.' + me + ')';
 
         const result = await sb.from('messages')
-            .select('id, sender_id, receiver_id, content, created_at, enc_algo')
+            .select('id, sender_id, receiver_id, content, created_at, enc_algo, media_url, media_type')
             .or(filter)
             .order('created_at', { ascending: false })
             .limit(200);
@@ -1566,6 +1591,7 @@
         if (chatMessagesBox) chatMessagesBox.textContent = '';
         if (chatEmpty) chatEmpty.hidden = true;
         setSocialMsg(chatMsg, '');
+        setChatFile(null);
         if (!friend.public_key) {
             setSocialMsg(chatMsg, '对方还没启用加密聊天，暂时发不出消息；让对方打开一次「好友」页即可');
         }
@@ -1772,7 +1798,8 @@
             if (!activeFriend) return;
 
             const text = chatInput.value.trim();
-            if (!text) return;
+            const file = chatFile;
+            if (!text && !file) return;
             if (text.length > 2000) {
                 setSocialMsg(chatMsg, '消息最多 2000 个字');
                 return;
@@ -1799,11 +1826,25 @@
                 return;
             }
 
+            let media = null;
+            if (file) {
+                setSocialMsg(chatMsg, '媒体上传中…');
+                try {
+                    media = await uploadMediaFile(file, 'chat');
+                } catch (err) {
+                    submit.disabled = false;
+                    setSocialMsg(chatMsg, '媒体上传失败：' + translateError(err.message || ''));
+                    return;
+                }
+            }
+
             const result = await sb.from('messages').insert({
                 sender_id: currentUser.id,
                 receiver_id: activeFriend.id,
                 content: cipherText,
-                enc_algo: CHAT_ENC_ALGO
+                enc_algo: CHAT_ENC_ALGO,
+                media_url: media ? media.url : null,
+                media_type: media ? media.type : null
             });
 
             submit.disabled = false;
@@ -1814,6 +1855,7 @@
             }
 
             chatInput.value = '';
+            setChatFile(null);
             setSocialMsg(chatMsg, '');
             await loadMessages();
         });
@@ -1828,6 +1870,44 @@
                     chatForm.querySelector('button[type="submit"]').click();
                 }
             }
+        });
+    }
+
+    function setChatFile(file) {
+        chatFile = file || null;
+        if (chatAttachName) {
+            chatAttachName.textContent = chatFile ? mediaName(chatFile) : '';
+        }
+        if (chatAttachBar) chatAttachBar.hidden = !chatFile;
+    }
+
+    if (chatAttachBtn && chatFileInput) {
+        chatAttachBtn.addEventListener('click', function () {
+            chatFileInput.click();
+        });
+
+        chatFileInput.addEventListener('change', function () {
+            const file = chatFileInput.files && chatFileInput.files[0];
+            chatFileInput.value = '';
+            if (!file) return;
+
+            if (!mediaKind(file)) {
+                setSocialMsg(chatMsg, '只支持图片或视频');
+                return;
+            }
+            if (file.size > MEDIA_MAX_SIZE) {
+                setSocialMsg(chatMsg, '文件不能超过 25MB');
+                return;
+            }
+
+            setSocialMsg(chatMsg, '');
+            setChatFile(file);
+        });
+    }
+
+    if (chatAttachClear) {
+        chatAttachClear.addEventListener('click', function () {
+            setChatFile(null);
         });
     }
 
@@ -2035,7 +2115,10 @@
             // 列表里只显示一行预览，超出用省略号
             const preview = document.createElement('p');
             preview.className = 'community-post__preview';
-            preview.textContent = post.content;
+            const mediaLabel = post.media_type === 'video'
+                ? '[视频]'
+                : (post.media_type === 'image' ? '[图片]' : '');
+            preview.textContent = (mediaLabel ? mediaLabel + ' ' : '') + (post.content || '');
 
             item.append(head, preview);
             item.addEventListener('click', function () {
@@ -2167,7 +2250,15 @@
             sendCommunityComment(post, commentInput, commentSend, commentList);
         });
 
-        communityDetailBody.append(head, text, actions, comments);
+        communityDetailBody.append(head, text);
+
+        if (post.media_url) {
+            communityDetailBody.append(
+                createMediaElement(post.media_url, post.media_type, 'community-media')
+            );
+        }
+
+        communityDetailBody.append(actions, comments);
 
         loadCommunityComments(post, commentList);
 
@@ -2386,9 +2477,9 @@
 
         const result = await sb
             .from('community_posts')
-            .select('id, content, created_at, author_id')
+            .select('id, content, created_at, author_id, media_url, media_type')
             .order('created_at', { ascending: false })
-            .limit(60);
+            .limit(100);
 
         if (reqId !== communityRequestId) return;
 
@@ -2463,6 +2554,8 @@
                 author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
+                media_url: row.media_url || null,
+                media_type: row.media_type || null,
                 likes_count: likeCounts[row.id] || 0,
                 liked: !!likedIds[row.id],
                 bookmarked: !!bookmarkedIds[row.id],
@@ -2499,6 +2592,97 @@
         communityInput.addEventListener('input', updateCommunityCount);
     }
 
+    function mediaKind(file) {
+        if (!file) return null;
+        if (file.type.indexOf('image/') === 0) return 'image';
+        if (file.type.indexOf('video/') === 0) return 'video';
+        return null;
+    }
+
+    function mediaName(file) {
+        return file.name || (mediaKind(file) === 'video' ? '视频' : '图片');
+    }
+
+    // 上传到公开的 media 桶，返回可直接访问的地址和类型
+    async function uploadMediaFile(file, prefix) {
+        if (!currentUser) throw new Error('请先登录');
+
+        const kind = mediaKind(file);
+        if (!kind) throw new Error('只支持图片或视频');
+        if (file.size > MEDIA_MAX_SIZE) throw new Error('文件不能超过 25MB');
+
+        const rawExt = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ext = rawExt || (kind === 'video' ? 'mp4' : 'jpg');
+        const path = currentUser.id + '/' + prefix + '-' + Date.now() + '-' +
+            Math.random().toString(36).slice(2, 8) + '.' + ext;
+
+        const upload = await sb.storage.from(MEDIA_BUCKET).upload(path, file, {
+            upsert: false,
+            contentType: file.type,
+            cacheControl: '31536000'
+        });
+
+        if (upload.error) throw upload.error;
+
+        return {
+            url: sb.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
+            type: kind
+        };
+    }
+
+    function createMediaElement(url, type, className) {
+        const el = document.createElement(type === 'video' ? 'video' : 'img');
+        el.className = className;
+        el.src = url;
+        if (type === 'video') {
+            el.controls = true;
+            el.preload = 'metadata';
+            el.playsInline = true;
+        } else {
+            el.alt = '图片';
+            el.loading = 'lazy';
+        }
+        return el;
+    }
+
+    function setCommunityFile(file) {
+        communityFile = file || null;
+        if (communityAttachName) {
+            communityAttachName.textContent = communityFile ? mediaName(communityFile) : '';
+        }
+        if (communityAttachClear) communityAttachClear.hidden = !communityFile;
+    }
+
+    if (communityAttachBtn && communityFileInput) {
+        communityAttachBtn.addEventListener('click', function () {
+            communityFileInput.click();
+        });
+
+        communityFileInput.addEventListener('change', function () {
+            const file = communityFileInput.files && communityFileInput.files[0];
+            communityFileInput.value = '';
+            if (!file) return;
+
+            if (!mediaKind(file)) {
+                setSocialMsg(communityMsg, '只支持图片或视频');
+                return;
+            }
+            if (file.size > MEDIA_MAX_SIZE) {
+                setSocialMsg(communityMsg, '文件不能超过 25MB');
+                return;
+            }
+
+            setSocialMsg(communityMsg, '');
+            setCommunityFile(file);
+        });
+    }
+
+    if (communityAttachClear) {
+        communityAttachClear.addEventListener('click', function () {
+            setCommunityFile(null);
+        });
+    }
+
     if (communityForm) {
         communityForm.addEventListener('submit', async function (e) {
             e.preventDefault();
@@ -2509,8 +2693,8 @@
             }
 
             const text = (communityInput.value || '').trim();
-            if (!text) {
-                setSocialMsg(communityMsg, '先写点什么再发布');
+            if (!text && !communityFile) {
+                setSocialMsg(communityMsg, '写点什么，或选一张图片/视频');
                 return;
             }
             if (text.length > 500) {
@@ -2532,9 +2716,25 @@
                 return;
             }
 
+            let media = null;
+            if (communityFile) {
+                submit.textContent = '上传中…';
+                try {
+                    media = await uploadMediaFile(communityFile, 'community');
+                } catch (err) {
+                    submit.disabled = false;
+                    submit.textContent = '发布';
+                    setSocialMsg(communityMsg, '媒体上传失败：' + translateError(err.message || ''));
+                    return;
+                }
+                submit.textContent = '发布中…';
+            }
+
             const result = await sb.from('community_posts').insert({
                 author_id: currentUser.id,
-                content: text
+                content: text,
+                media_url: media ? media.url : null,
+                media_type: media ? media.type : null
             });
 
             submit.disabled = false;
@@ -2547,6 +2747,7 @@
 
             communityInput.value = '';
             updateCommunityCount();
+            setCommunityFile(null);
             setSocialMsg(communityMsg, '已发布', 'success');
             await loadCommunity(true);
         });
