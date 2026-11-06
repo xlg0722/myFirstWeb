@@ -1116,9 +1116,51 @@ button.friend-item:focus-visible {
 }
 
 .community-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    align-items: start;
+}
+
+/* 列表标题 + 排序选择 */
+.community-list__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 20px 0 9px;
+}
+
+.community-list__head .section-title {
+    margin: 0;
+}
+
+.community-sort {
+    flex: none;
+    padding: 5px 26px 5px 9px;
+    font: inherit;
+    font-size: 12px;
+    color: #dfe8ff;
+    background: rgba(14, 22, 40, 0.76);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 6px;
+    cursor: pointer;
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, rgba(186, 204, 235, 0.7) 50%),
+                      linear-gradient(135deg, rgba(186, 204, 235, 0.7) 50%, transparent 50%);
+    background-position: calc(100% - 13px) center, calc(100% - 8px) center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+}
+
+.community-sort:focus {
+    outline: none;
+    border-color: rgba(180, 205, 255, 0.7);
+}
+
+.community-sort option {
+    color: #dfe8ff;
+    background: #101a2e;
 }
 
 .community-post {
@@ -1254,7 +1296,7 @@ button.friend-item:focus-visible {
 
 .community-left {
     display: flex;
-    flex: 1 1 42%;
+    flex: 1 1 63%;
     flex-direction: column;
     min-width: 0;
     overflow: hidden;
@@ -1266,10 +1308,11 @@ button.friend-item:focus-visible {
     min-height: 0;
     overflow-y: auto;
     padding-right: 4px;
+    align-content: start;
 }
 
 .community-right {
-    flex: 1 1 58%;
+    flex: 1 1 37%;
     min-width: 0;
     overflow-y: auto;
     padding-right: 4px;
@@ -1289,6 +1332,7 @@ button.friend-item:focus-visible {
 /* 左侧列表项：头像昵称一行，正文一行省略 */
 .community-post--compact {
     width: 100%;
+    min-width: 0;
     font: inherit;
     color: inherit;
     text-align: left;
@@ -1407,10 +1451,47 @@ button.friend-item:focus-visible {
     color: rgba(186, 204, 235, 0.6);
 }
 
-.media-pick__clear {
-    flex: none;
-    padding: 6px 10px;
+/* 已选中的多个文件，一行一个小标签 */
+.media-pick__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.media-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 3px 6px 3px 9px;
     font-size: 12px;
+    color: rgba(223, 232, 255, 0.85);
+    background: rgba(40, 62, 104, 0.5);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 6px;
+}
+
+.media-chip__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.media-chip__remove {
+    flex: none;
+    padding: 0 3px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    color: #ff9aa2;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.media-chip__remove:hover {
+    color: #ffc0c5;
 }
 
 /* 聊天输入框左侧的附件按钮 */
@@ -1468,6 +1549,129 @@ button.friend-item:focus-visible {
     object-fit: contain;
 }
 
+/* 多个媒体：三列小宫格 */
+.community-media-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.community-media__cell {
+    position: relative;
+    display: block;
+    padding: 0;
+    overflow: hidden;
+    aspect-ratio: 1 / 1;
+    background: rgba(8, 14, 28, 0.6);
+    border: 1px solid rgba(158, 184, 232, 0.22);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.community-media__cell:hover {
+    border-color: rgba(180, 205, 255, 0.6);
+}
+
+.community-media__thumb {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.community-media__play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(4, 8, 16, 0.3);
+    pointer-events: none;
+}
+
+/* 全屏查看图层 */
+.media-viewer {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4, 8, 16, 0.9);
+}
+
+.media-viewer__stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 92vw;
+    max-height: 88vh;
+}
+
+.media-viewer__media {
+    display: block;
+    max-width: 92vw;
+    max-height: 88vh;
+    border-radius: 10px;
+    object-fit: contain;
+}
+
+.media-viewer__close {
+    position: absolute;
+    top: 18px;
+    right: 22px;
+    padding: 0;
+    font-size: 30px;
+    line-height: 1;
+    color: rgba(232, 240, 255, 0.85);
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.media-viewer__close:hover {
+    color: #fff;
+}
+
+.media-viewer__nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 6px 12px;
+    font-size: 28px;
+    line-height: 1;
+    color: rgba(232, 240, 255, 0.8);
+    background: rgba(20, 32, 56, 0.6);
+    border: 1px solid rgba(158, 184, 232, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.media-viewer__nav:hover {
+    color: #fff;
+    border-color: rgba(180, 205, 255, 0.65);
+}
+
+.media-viewer__nav--prev {
+    left: 18px;
+}
+
+.media-viewer__nav--next {
+    right: 18px;
+}
+
+.media-viewer__count {
+    position: absolute;
+    left: 50%;
+    bottom: 20px;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: rgba(186, 204, 235, 0.75);
+}
+
 /* 聊天气泡里的图片 / 视频 */
 .chat-media {
     display: block;
@@ -1491,5 +1695,11 @@ button.friend-item:focus-visible {
 
     .chat-media {
         max-height: 220px;
+    }
+}
+
+@media (max-width: 520px) {
+    .community-list {
+        grid-template-columns: 1fr;
     }
 }
