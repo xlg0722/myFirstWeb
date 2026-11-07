@@ -85,6 +85,9 @@
     const userNameEl = document.getElementById('user-name');
     const userEmailEl = document.getElementById('user-email');
     const userAddBtn = document.getElementById('user-add-friend');
+    const userMessageBtn = document.getElementById('user-message');
+    const userPostsBox = document.getElementById('user-posts');
+    const userPostsEmpty = document.getElementById('user-posts-empty');
     const userMsg = document.getElementById('user-msg');
 
     // 社区
@@ -824,7 +827,10 @@
         userAddBtn.disabled = false;
         userAddBtn.textContent = '加好友';
 
-        if (friends.some(function (f) { return f.id === viewedUser.id; })) {
+        const isFriend = friends.some(function (f) { return f.id === viewedUser.id; });
+        if (userMessageBtn) userMessageBtn.hidden = !isFriend;
+
+        if (isFriend) {
             userAddBtn.textContent = '已是好友';
             userAddBtn.disabled = true;
             return;
@@ -866,6 +872,84 @@
 
         renderUserFriendState();
         setSocialMsg(userMsg, '');
+        loadUserPosts();
+
+        // 好友关系可能还没加载过，后台补一次再刷新按钮
+        if (currentUser) {
+            refreshSocial().then(function () {
+                if (viewedUser) renderUserFriendState();
+            });
+        }
+    }
+
+    // 好友资料页里的「发消息」：进入好友页并打开聊天
+    async function messageViewedUser() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        if (!viewedUser) return;
+
+        let friend = friends.find(function (f) { return f.id === viewedUser.id; });
+        if (!friend) {
+            const people = await fetchProfiles([viewedUser.id]);
+            friend = people[0] || viewedUser;
+        }
+
+        goPage('friends');
+        openChat(friend);
+    }
+
+    // 资料页展示对方最近的社区动态
+    async function loadUserPosts() {
+        if (!userPostsBox || !viewedUser) return;
+
+        userPostsBox.textContent = '加载中…';
+        if (userPostsEmpty) userPostsEmpty.hidden = true;
+        const targetId = viewedUser.id;
+
+        const result = await sb
+            .from('community_posts')
+            .select('id, content, media, created_at')
+            .eq('author_id', targetId)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (!viewedUser || viewedUser.id !== targetId) return;
+
+        userPostsBox.textContent = '';
+
+        if (result.error) {
+            userPostsBox.textContent = '读取动态失败：' + communityError(result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        if (!rows.length) {
+            if (userPostsEmpty) userPostsEmpty.hidden = false;
+            return;
+        }
+
+        rows.forEach(function (row) {
+            const item = document.createElement('div');
+            item.className = 'user-post';
+
+            const mediaLabel = communityMediaLabel(row.media);
+            const text = document.createElement('p');
+            text.className = 'user-post__text';
+            text.textContent = (mediaLabel ? mediaLabel + ' ' : '') + (row.content || (mediaLabel ? '' : '（无内容）'));
+
+            const time = document.createElement('span');
+            time.className = 'user-post__time';
+            time.textContent = formatMessageTime(row.created_at);
+
+            item.append(text, time);
+            userPostsBox.appendChild(item);
+        });
+    }
+
+    if (userMessageBtn) {
+        userMessageBtn.addEventListener('click', messageViewedUser);
     }
 
     async function addFriendFromUserPage() {
