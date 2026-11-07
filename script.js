@@ -387,3 +387,29 @@
         if (PAGE_NAMES.includes(name)) showPage(name);
     });
 })();
+
+/**
+ * 加载遮罩：页面资源加载完成后淡出
+ * 兜底：2.5 秒后无论是否加载完都隐藏，避免被慢资源卡住
+ */
+(function () {
+    const loader = document.getElementById('page-loader');
+    if (!loader) return;
+
+    let done = false;
+    function hide() {
+        if (done || !loader) return;
+        done = true;
+        loader.classList.add('is-hidden');
+        setTimeout(function () {
+            if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
+        }, 450);
+    }
+
+    if (document.readyState === 'complete') {
+        hide();
+    } else {
+        window.addEventListener('load', hide);
+    }
+    setTimeout(hide, 2500);
+})();

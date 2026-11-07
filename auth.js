@@ -185,7 +185,6 @@
     // 通知中心
     let notifications = [];         // [{ id, type, actor_id, post_id, content, read, created_at, actor }]
     let noticeUnread = 0;           // 未读条数
-    let noticeLoadedAt = 0;         // 上次拉取通知的时间
     let noticeReloadTimer = null;   // 合并实时推送触发的刷新
 
     function goPage(name) {
@@ -1486,6 +1485,7 @@
     function notificationText(n) {
         const name = (n.actor && n.actor.nickname) ? n.actor.nickname : '有人';
         if (n.type === 'friend_request') return name + ' 申请加你为好友';
+        if (n.type === 'message') return name + ' 给你发了条新消息';
         if (n.type === 'like') return name + ' 赞了你的动态';
         if (n.type === 'comment') {
             const c = (n.content || '').trim();
@@ -1551,7 +1551,7 @@
         }
         closeNoticePanel();
 
-        if (n.type === 'friend_request') {
+        if (n.type === 'friend_request' || n.type === 'message') {
             goPage('friends');
         } else if ((n.type === 'like' || n.type === 'comment') && n.post_id) {
             openCommunityPostById(n.post_id);
@@ -1562,13 +1562,10 @@
         if (!currentUser) {
             notifications = [];
             noticeUnread = 0;
-            noticeLoadedAt = 0;
             renderNotifications();
             renderNoticeBadge();
             return;
         }
-        // 10 秒内不重复拉取，实时推送靠订阅增量刷新
-        if (noticeLoadedAt && Date.now() - noticeLoadedAt < 10000) return;
 
         const result = await sb.from('notifications')
             .select('id, type, actor_id, post_id, content, read, created_at')
@@ -1597,7 +1594,6 @@
             return r;
         });
         noticeUnread = notifications.filter(function (n) { return !n.read; }).length;
-        noticeLoadedAt = Date.now();
 
         renderNotifications();
         renderNoticeBadge();
@@ -2716,7 +2712,12 @@
                 content: cipherText,
                 enc_algo: CHAT_ENC_ALGO,
                 media_url: media ? media.url : null,
-                media_type: media ? media.type : null
+                media_type: media ? media.type : 
+
+
+[Background Job] command_id=118324e10663cdea16eb1bdf6410dbf5, log_path=C:\Users\小龙果\AppData\Roaming\Trae CN\ModularData\ai-agent\command-execution\118324e10663cdea16eb1bdf6410dbf5\output.log
+Use CheckCommandStatus with this command_id to get output updates.
+Use StopCommand to terminate if needed.null
             });
 
             submit.disabled = false;
@@ -2725,6 +2726,9 @@
                 setSocialMsg(chatMsg, '发送失败：' + socialError(result.error));
                 return;
             }
+
+            // 通知对方收到新私信
+            notifyUser(activeFriend.id, 'message', {});
 
             chatInput.value = '';
             setChatFile(null);
