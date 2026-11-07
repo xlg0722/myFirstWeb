@@ -214,16 +214,19 @@
             <h2 class="panel-title">个人资料</h2>
 
             <div class="profile-head">
-                <button class="profile-avatar" id="avatar-pick" type="button" title="更换头像" aria-label="更换头像">
-                    <img class="profile-avatar__img" id="profile-avatar-img" alt="" hidden>
-                    <span class="profile-avatar__fallback" id="profile-avatar-fallback"></span>
-                </button>
+                <div class="profile-avatar-wrap">
+                    <button class="profile-avatar" id="avatar-pick" type="button" title="查看我的公开资料" aria-label="查看我的公开资料">
+                        <img class="profile-avatar__img" id="profile-avatar-img" alt="" hidden>
+                        <span class="profile-avatar__fallback" id="profile-avatar-fallback"></span>
+                    </button>
+                    <button class="profile-avatar-edit" id="avatar-edit" type="button">更换头像</button>
+                </div>
                 <div class="profile-meta">
                     <p class="profile-name" id="profile-name"></p>
                     <p class="profile-email" id="profile-email"></p>
                 </div>
             </div>
-            <p class="profile-tip">点击头像更换（JPG / PNG / WebP / GIF，2MB 以内）</p>
+            <p class="profile-tip">点头像看自己的公开资料（JPG / PNG / WebP / GIF，2MB 以内）</p>
             <input type="file" id="avatar-file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
 
             <form class="auth-form profile-form" id="profile-form" novalidate>
