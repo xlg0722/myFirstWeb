@@ -88,6 +88,9 @@
     const userMessageBtn = document.getElementById('user-message');
     const userPostsBox = document.getElementById('user-posts');
     const userPostsEmpty = document.getElementById('user-posts-empty');
+    const userBioEl = document.getElementById('user-bio');
+    const userMetaEl = document.getElementById('user-meta');
+    const userGallery = document.getElementById('user-gallery');
     const userMsg = document.getElementById('user-msg');
 
     // 社区
@@ -303,6 +306,7 @@
         if (profileNameEl) profileNameEl.textContent = nicknameOf();
         if (profileEmailEl) profileEmailEl.textContent = currentUser.email || '';
         if (profileForm.nickname) profileForm.nickname.value = nicknameOf();
+        if (profileForm.bio) profileForm.bio.value = (currentProfile && currentProfile.bio) || '';
     }
 
     async function loadProfile(user) {
@@ -314,7 +318,7 @@
         try {
             const result = await sb
                 .from('profiles')
-                .select('nickname, avatar_url, updated_at, public_key')
+                .select('*')
                 .eq('id', user.id)
                 .maybeSingle();
 
@@ -331,7 +335,7 @@
             const inserted = await sb
                 .from('profiles')
                 .insert({ id: user.id, nickname: nickname })
-                .select('nickname, avatar_url, updated_at, public_key')
+                .select('*')
                 .maybeSingle();
 
             currentProfile = inserted.data || {
@@ -588,19 +592,36 @@
                 return;
             }
 
+            const bio = profileForm.bio ? profileForm.bio.value.trim() : '';
+            if (bio.length > 200) {
+                showMessage(profileForm, '个性签名最多 200 个字符');
+                return;
+            }
+
             const submit = profileForm.querySelector('button[type="submit"]');
             showMessage(profileForm, '');
             submit.disabled = true;
             submit.textContent = '保存中…';
 
-            const result = await sb
+            let result = await sb
                 .from('profiles')
-                .upsert({ id: currentUser.id, nickname: nickname }, { onConflict: 'id' })
-                .select('nickname, avatar_url, updated_at, public_key')
+                .upsert({ id: currentUser.id, nickname: nickname, bio: bio }, { onConflict: 'id' })
+                .select('*')
                 .maybeSingle();
 
+            // 数据库还没加 bio 列时退回只存昵称，不让整个保存流程失败
+            let bioSaved = !result.error;
+            if (result.error && /bio|column|does not exist/i.test(result.error.message)) {
+                bioSaved = false;
+                result = await sb
+                    .from('profiles')
+                    .upsert({ id: currentUser.id, nickname: nickname }, { onConflict: 'id' })
+                    .select('*')
+                    .maybeSingle();
+            }
+
             submit.disabled = false;
-            submit.textContent = '保存昵称';
+            submit.textContent = '保存资料';
 
             if (result.error) {
                 showMessage(profileForm, '保存失败：' + translateError(result.error.message));
@@ -622,7 +643,12 @@
 
             renderAccount();
             renderProfilePage();
-            showMessage(profileForm, '昵称已保存', 'success');
+
+            if (!bioSaved) {
+                showMessage(profileForm, '昵称已保存；个性签名需要先在 Supabase 执行新增 bio 列的 SQL', 'error');
+                return;
+            }
+            showMessage(profileForm, '资料已保存', 'success');
         });
     }
 
@@ -801,7 +827,9 @@
             nickname: p.nickname || '玩家',
             avatar_url: p.avatar_url || null,
             updated_at: p.updated_at || null,
-            public_key: p.public_key || null
+            public_key: p.public_key || null,
+            bio: p.bio || '',
+            created_at: p.created_at || null
         };
     }
 
@@ -854,6 +882,17 @@
 
         if (userNameEl) userNameEl.textContent = viewedUser.nickname;
         if (userEmailEl) userEmailEl.textContent = '社区用户';
+
+        if (userBioEl) {
+            const bio = (viewedUser.bio || '').trim();
+            userBioEl.textContent = bio;
+            userBioEl.hidden = !bio;
+        }
+        if (userMetaEl) userMetaEl.textContent = '';
+        if (userGallery) {
+            userGallery.textContent = '';
+            userGallery.hidden = true;
+        }
 
         if (userAvatarImg && userAvatarFallback) {
             const src = profileAvatarSrc(viewedUser);
@@ -915,6 +954,11 @@
             .order('created_at', { ascending: false })
             .limit(10);
 
+        const countResult = await sb
+            .from('community_posts')
+            .select('id', { count: 'exact', head: true })
+            .eq('author_id', targetId);
+
         if (!viewedUser || viewedUser.id !== targetId) return;
 
         userPostsBox.textContent = '';
@@ -925,6 +969,40 @@
         }
 
         const rows = result.data || [];
+
+        // 加入时间 + 动态总数
+        const total = (countResult && typeof countResult.count === 'number') ? countResult.count : rows.length;
+        const meta = [];
+        const joined = viewedUser.created_at ? new Date(viewedUser.created_at) : null;
+        if (joined && !isNaN(joined.getTime())) {
+            meta.push('加入于 ' + joined.getFullYear() + '-' +
+                String(joined.getMonth() + 1).padStart(2, '0'));
+        }
+        meta.push(total + ' 条动态');
+        if (userMetaEl) userMetaEl.textContent = meta.join(' · ');
+
+        // 图片墙：最近动态里的图片，最多 6 张，可点开大图
+        const pics = [];
+        rows.forEach(function (row) {
+            (row.media || []).forEach(function (m) {
+                if (pics.length < 6 && m && m.type === 'image' && m.url) pics.push(m);
+            });
+        });
+        if (userGallery) {
+            userGallery.textContent = '';
+            userGallery.hidden = pics.length === 0;
+            pics.forEach(function (pic, index) {
+                const cell = document.createElement('button');
+                cell.className = 'user-gallery__cell';
+                cell.type = 'button';
+                cell.appendChild(createMediaThumb(pic));
+                cell.addEventListener('click', function () {
+                    openMediaViewer(pics, index);
+                });
+                userGallery.appendChild(cell);
+            });
+        }
+
         if (!rows.length) {
             if (userPostsEmpty) userPostsEmpty.hidden = false;
             return;
@@ -1381,7 +1459,7 @@
 
         if (missing.length) {
             const result = await sb.from('profiles')
-                .select('id, nickname, avatar_url, updated_at, public_key')
+                .select('*')
                 .in('id', missing);
 
             if (result.error) {
