@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 登录 / 注册 / 会话保持 / 个人资料 / 注销账号 / 下载鉴权
  * 依赖：@supabase/supabase-js CDN、supabase-config.js
  */
@@ -92,6 +92,8 @@
     const userBioEl = document.getElementById('user-bio');
     const userMetaEl = document.getElementById('user-meta');
     const userGallery = document.getElementById('user-gallery');
+    const userDetailEmpty = document.getElementById('user-detail-empty');
+    const userDetailBody = document.getElementById('user-detail-body');
     const userMsg = document.getElementById('user-msg');
 
     // 社区
@@ -133,6 +135,8 @@
     let searchResults = [];
     let activeFriend = null;
     let viewedUser = null;       // 正在查看的他人资料
+    let userPosts = [];          // 资料页左侧的动态列表（已富化）
+    let activeUserPostId = null; // 资料页右侧当前打开的帖子
     let unreadByFriend = {};     // friend_id -> 未读条数
     let realtimeChannel = null;
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
@@ -984,17 +988,20 @@
         if (userPostsEmpty) userPostsEmpty.hidden = true;
         const targetId = viewedUser.id;
 
+        // 清空右侧详情
+        activeUserPostId = null;
+        if (userDetailBody) {
+            userDetailBody.textContent = '';
+            userDetailBody.hidden = true;
+        }
+        if (userDetailEmpty) userDetailEmpty.hidden = false;
+
         const result = await sb
             .from('community_posts')
-            .select('id, content, media, created_at')
+            .select('id, content, media, created_at, author_id')
             .eq('author_id', targetId)
             .order('created_at', { ascending: false })
             .limit(10);
-
-        const countResult = await sb
-            .from('community_posts')
-            .select('id', { count: 'exact', head: true })
-            .eq('author_id', targetId);
 
         if (!viewedUser || viewedUser.id !== targetId) return;
 
@@ -1006,6 +1013,68 @@
         }
 
         const rows = result.data || [];
+        const postIds = rows.map(function (r) { return r.id; });
+
+        // 动态总数、点赞数、我的点赞、我的收藏并行拉取
+        const queryResults = await Promise.all([
+            sb.from('community_posts')
+                .select('id', { count: 'exact', head: true })
+                .eq('author_id', targetId),
+            postIds.length
+                ? sb.from('community_likes').select('post_id').in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null }),
+            postIds.length && currentUser
+                ? sb.from('community_likes').select('post_id')
+                    .eq('user_id', currentUser.id).in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null }),
+            postIds.length && currentUser
+                ? sb.from('community_bookmarks').select('post_id')
+                    .eq('user_id', currentUser.id).in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null })
+        ]);
+
+        if (!viewedUser || viewedUser.id !== targetId) return;
+
+        const countResult = queryResults[0];
+        let likeCounts = {};
+        if (!queryResults[1].error) {
+            (queryResults[1].data || []).forEach(function (like) {
+                likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1;
+            });
+        }
+        let likedIds = {};
+        if (!queryResults[2].error) {
+            (queryResults[2].data || []).forEach(function (like) { likedIds[like.post_id] = true; });
+        }
+        let bookmarkedIds = {};
+        if (!queryResults[3].error) {
+            (queryResults[3].data || []).forEach(function (mark) { bookmarkedIds[mark.post_id] = true; });
+        }
+
+        // 富化为详情渲染需要的结构（作者就是被查看的用户）
+        const author = normalizeProfile(viewedUser);
+        userPosts = rows.map(function (row) {
+            const media = Array.isArray(row.media) ? row.media : [];
+            return {
+                id: row.id,
+                author_id: row.author_id,
+                content: row.content,
+                created_at: row.created_at,
+                media: media
+                    .filter(function (item) { return item && item.url; })
+                    .slice(0, 9)
+                    .map(function (item) {
+                        return {
+                            url: item.url,
+                            type: item.type === 'video' ? 'video' : 'image'
+                        };
+                    }),
+                likes_count: likeCounts[row.id] || 0,
+                liked: !!likedIds[row.id],
+                bookmarked: !!bookmarkedIds[row.id],
+                author: author
+            };
+        });
 
         // 加入时间 + 动态总数
         const total = (countResult && typeof countResult.count === 'number') ? countResult.count : rows.length;
@@ -1020,9 +1089,9 @@
 
         // 图片墙：最近动态里的图片，最多 6 张，可点开大图
         const pics = [];
-        rows.forEach(function (row) {
-            (row.media || []).forEach(function (m) {
-                if (pics.length < 6 && m && m.type === 'image' && m.url) pics.push(m);
+        userPosts.forEach(function (post) {
+            post.media.forEach(function (m) {
+                if (pics.length < 6 && m.type === 'image') pics.push(m);
             });
         });
         if (userGallery) {
@@ -1040,27 +1109,58 @@
             });
         }
 
-        if (!rows.length) {
+        if (!userPosts.length) {
             if (userPostsEmpty) userPostsEmpty.hidden = false;
             return;
         }
 
-        rows.forEach(function (row) {
-            const item = document.createElement('div');
+        userPosts.forEach(function (post) {
+            const item = document.createElement('button');
+            item.type = 'button';
             item.className = 'user-post';
+            item.dataset.postId = post.id;
+            item.addEventListener('click', function () {
+                openUserPostDetail(post);
+            });
 
-            const mediaLabel = communityMediaLabel(row.media);
+            const mediaLabel = communityMediaLabel(post.media);
             const text = document.createElement('p');
             text.className = 'user-post__text';
-            text.textContent = (mediaLabel ? mediaLabel + ' ' : '') + (row.content || (mediaLabel ? '' : '（无内容）'));
+            text.textContent = (mediaLabel ? mediaLabel + ' ' : '') +
+                (post.content || (mediaLabel ? '' : '（无内容）'));
+
+            const foot = document.createElement('span');
+            foot.className = 'user-post__foot';
 
             const time = document.createElement('span');
             time.className = 'user-post__time';
-            time.textContent = formatMessageTime(row.created_at);
+            time.textContent = formatMessageTime(post.created_at);
 
-            item.append(text, time);
+            const likes = document.createElement('span');
+            likes.className = 'user-post__likes';
+            likes.textContent = '♥ ' + (post.likes_count || 0);
+
+            foot.append(time, likes);
+            item.append(text, foot);
             userPostsBox.appendChild(item);
         });
+    }
+
+    // 资料页右侧渲染完整帖子（复用社区详情）
+    function openUserPostDetail(post) {
+        activeUserPostId = post.id;
+
+        if (userPostsBox) {
+            Array.prototype.forEach.call(userPostsBox.children, function (node) {
+                node.classList.toggle('is-active', node.dataset.postId === post.id);
+            });
+        }
+
+        if (!userDetailBody) return;
+        if (userDetailEmpty) userDetailEmpty.hidden = true;
+        userDetailBody.hidden = false;
+
+        renderPostDetail(post, userDetailBody);
     }
 
     if (userMessageBtn) {
@@ -2683,12 +2783,12 @@
     }
 
     // 单个媒体直接大图，多个媒体用九宫格缩小显示
-    function renderCommunityMedia(post) {
+    function renderCommunityMedia(post, container) {
         const media = post.media || [];
-        if (!media.length || !communityDetailBody) return;
+        if (!media.length || !container) return;
 
         if (media.length === 1) {
-            communityDetailBody.appendChild(
+            container.appendChild(
                 createMediaElement(media[0].url, media[0].type, 'community-media')
             );
             return;
@@ -2717,7 +2817,7 @@
             grid.appendChild(cell);
         });
 
-        communityDetailBody.appendChild(grid);
+        container.appendChild(grid);
     }
 
     // 点击缩略图后的全屏查看层，支持左右切换
@@ -2812,6 +2912,19 @@
         if (communityDetailEmpty) communityDetailEmpty.hidden = true;
         communityDetailBody.hidden = false;
         communityDetailBody.textContent = '';
+
+        renderPostDetail(post, communityDetailBody);
+
+        // 窄屏是上下布局，点开消息后滚到详情
+        if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+            communityDetailBody.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    // 把一条帖子渲染进任意容器（社区右栏 / 用户资料页右栏共用）
+    function renderPostDetail(post, container) {
+        if (!container) return;
+        container.textContent = '';
 
         const head = document.createElement('div');
         head.className = 'community-detail__head';
@@ -2914,16 +3027,11 @@
             sendCommunityComment(post, commentInput, commentSend, commentList);
         });
 
-        communityDetailBody.append(head, text);
-        renderCommunityMedia(post);
-        communityDetailBody.append(actions, comments);
+        container.append(head, text);
+        renderCommunityMedia(post, container);
+        container.append(actions, comments);
 
         loadCommunityComments(post, commentList);
-
-        // 窄屏是上下布局，点开消息后滚到详情
-        if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
-            communityDetailBody.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
     }
 
     // 点赞 / 收藏变化后刷新左侧列表（保留滚动位置），同步星标和点赞数
@@ -3177,8 +3285,19 @@
 
         if (activeCommunityPostId === post.id) clearCommunityDetail();
 
+        // 在公开资料页里删了自己的动态：清空右侧并刷新左侧列表
+        if (activeUserPostId === post.id) {
+            activeUserPostId = null;
+            if (userDetailBody) {
+                userDetailBody.textContent = '';
+                userDetailBody.hidden = true;
+            }
+            if (userDetailEmpty) userDetailEmpty.hidden = false;
+        }
+
         setSocialMsg(communityMsg, '已删除', 'success');
         await loadCommunity(true);
+        if (viewedUser && location.hash === '#user') loadUserPosts();
     }
 
     async function loadCommunity(force, append) {
