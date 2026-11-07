@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -263,35 +263,44 @@
 
     <!-- 他人资料 -->
     <section class="page" id="page-user">
-        <div class="page-inner">
+        <div class="page-inner page-inner--wide page-inner--user">
             <a class="back-link" href="#community" data-page="community">← 返回社区</a>
             <h2 class="panel-title">用户资料</h2>
 
-            <div class="profile-head">
-                <div class="profile-avatar">
-                    <img class="profile-avatar__img" id="user-avatar-img" alt="" hidden>
-                    <span class="profile-avatar__fallback" id="user-avatar-fallback"></span>
+            <div class="user-layout">
+                <div class="user-left">
+                    <div class="profile-head">
+                        <div class="profile-avatar">
+                            <img class="profile-avatar__img" id="user-avatar-img" alt="" hidden>
+                            <span class="profile-avatar__fallback" id="user-avatar-fallback"></span>
+                        </div>
+                        <div class="profile-meta">
+                            <p class="profile-name" id="user-name"></p>
+                            <p class="profile-email" id="user-email">社区用户</p>
+                        </div>
+                    </div>
+
+                    <p class="profile-bio" id="user-bio" hidden></p>
+                    <p class="profile-meta-line" id="user-meta"></p>
+                    <div class="user-gallery" id="user-gallery" hidden></div>
+
+                    <div class="key-actions">
+                        <button class="friend-action" id="user-add-friend" type="button">加好友</button>
+                        <button class="friend-action" id="user-message" type="button" hidden>发消息</button>
+                    </div>
+                    <p class="auth-msg" id="user-msg" role="alert"></p>
+
+                    <div class="friend-section">
+                        <h3 class="section-title">最近动态</h3>
+                        <div class="user-posts" id="user-posts"></div>
+                        <p class="friends-empty" id="user-posts-empty" hidden>对方还没有发布动态</p>
+                    </div>
                 </div>
-                <div class="profile-meta">
-                    <p class="profile-name" id="user-name"></p>
-                    <p class="profile-email" id="user-email">社区用户</p>
+                <div class="community-divider" aria-hidden="true"></div>
+                <div class="user-right">
+                    <p class="friends-empty" id="user-detail-empty">点击左侧某条动态，这里会显示完整内容和评论</p>
+                    <div id="user-detail-body" hidden></div>
                 </div>
-            </div>
-
-            <p class="profile-bio" id="user-bio" hidden></p>
-            <p class="profile-meta-line" id="user-meta"></p>
-            <div class="user-gallery" id="user-gallery" hidden></div>
-
-            <div class="key-actions">
-                <button class="friend-action" id="user-add-friend" type="button">加好友</button>
-                <button class="friend-action" id="user-message" type="button" hidden>发消息</button>
-            </div>
-            <p class="auth-msg" id="user-msg" role="alert"></p>
-
-            <div class="friend-section">
-                <h3 class="section-title">最近动态</h3>
-                <div class="user-posts" id="user-posts"></div>
-                <p class="friends-empty" id="user-posts-empty" hidden>对方还没有发布动态</p>
             </div>
         </div>
     </section>

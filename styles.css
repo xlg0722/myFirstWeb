@@ -1,4 +1,4 @@
-﻿/* ===== 基础重置 ===== */
+/* ===== 基础重置 ===== */
 *,
 *::before,
 *::after {
@@ -1363,10 +1363,26 @@ button.friend-item:focus-visible {
 }
 
 .user-post {
+    width: 100%;
     padding: 9px 12px;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
     border: 1px solid rgba(158, 184, 232, 0.18);
     border-radius: 8px;
     background: rgba(22, 34, 58, 0.35);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.user-post:hover {
+    border-color: rgba(180, 205, 255, 0.5);
+    background: rgba(28, 44, 78, 0.5);
+}
+
+.user-post.is-active {
+    border-color: rgba(180, 205, 255, 0.65);
+    background: rgba(26, 41, 72, 0.78);
 }
 
 .user-post__text {
@@ -1376,11 +1392,21 @@ button.friend-item:focus-visible {
     overflow-wrap: anywhere;
 }
 
-.user-post__time {
-    display: block;
+.user-post__foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     margin-top: 4px;
+}
+
+.user-post__time {
     font-size: 11px;
     color: rgba(186, 204, 235, 0.45);
+}
+
+.user-post__likes {
+    font-size: 11px;
+    color: #ff9aa2;
 }
 
 .community-sort {
@@ -1570,6 +1596,35 @@ button.friend-item:focus-visible {
     max-width: 1180px;
 }
 
+.page-inner--user {
+    max-width: 1080px;
+}
+
+/* 资料页两栏：左资料+动态，右帖子详情 */
+.user-layout {
+    display: flex;
+    align-items: stretch;
+    gap: 20px;
+    height: calc(100vh - 224px);
+    min-height: 380px;
+}
+
+.user-left {
+    display: flex;
+    flex: 1 1 42%;
+    flex-direction: column;
+    min-width: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.user-right {
+    flex: 1 1 58%;
+    min-width: 0;
+    overflow-y: auto;
+    padding-left: 4px;
+}
+
 .community-layout {
     display: flex;
     align-items: stretch;
@@ -1703,6 +1758,19 @@ button.friend-item:focus-visible {
                     rgba(158, 184, 232, 0.35) 12%,
                     rgba(158, 184, 232, 0.35) 88%,
                     rgba(158, 184, 232, 0) 100%);
+    }
+
+    .user-layout {
+        flex-direction: column;
+        gap: 16px;
+        height: auto;
+        min-height: 0;
+    }
+
+    .user-left,
+    .user-right {
+        overflow: visible;
+        padding: 0;
     }
 }
 
