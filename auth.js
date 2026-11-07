@@ -2712,12 +2712,7 @@
                 content: cipherText,
                 enc_algo: CHAT_ENC_ALGO,
                 media_url: media ? media.url : null,
-                media_type: media ? media.type : 
-
-
-[Background Job] command_id=118324e10663cdea16eb1bdf6410dbf5, log_path=C:\Users\小龙果\AppData\Roaming\Trae CN\ModularData\ai-agent\command-execution\118324e10663cdea16eb1bdf6410dbf5\output.log
-Use CheckCommandStatus with this command_id to get output updates.
-Use StopCommand to terminate if needed.null
+                media_type: media ? media.type : null
             });
 
             submit.disabled = false;
