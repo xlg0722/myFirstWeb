@@ -114,6 +114,13 @@
     const communitySortSelect = document.getElementById('community-sort');
     const communityMoreBtn = document.getElementById('community-more');
     const communityBookmarkFilter = document.getElementById('community-bookmark-filter');
+    const communityChannelInput = document.getElementById('community-channel');
+    const communityTabs = document.getElementById('community-tabs');
+    const communityTitle = document.getElementById('community-title');
+    const communitySearchInput = document.getElementById('community-search');
+    const communityAuthorFilterEl = document.getElementById('community-author-filter');
+    const communityAuthorName = document.getElementById('community-author-name');
+    const communityAuthorClear = document.getElementById('community-author-clear');
 
     const AVATAR_BUCKET = 'avatars';
     const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
@@ -161,6 +168,10 @@
     let communityBookmarkOnly = false;  // 只看自己收藏的帖子
     let communityHasMore = false;       // 是否还有更早的帖子
     let communityLoadingMore = false;   // 防止滚动重复触发
+    let communityChannel = 'all';       // all / general / game / chat
+    let communityHot = false;           // 热门榜
+    let communitySearch = '';           // 内容关键词
+    let communityAuthorFilter = null;   // { id, nickname }
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -998,7 +1009,7 @@
 
         const result = await sb
             .from('community_posts')
-            .select('id, content, media, created_at, author_id')
+            .select('id, content, media, created_at, author_id, channel')
             .eq('author_id', targetId)
             .order('created_at', { ascending: false })
             .limit(10);
@@ -1060,6 +1071,7 @@
                 author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
+                channel: row.channel || 'general',
                 media: media
                     .filter(function (item) { return item && item.url; })
                     .slice(0, 9)
@@ -2636,11 +2648,59 @@
         return media[0].type === 'video' ? '[视频]' : '[图片]';
     }
 
+    // 频道名称
+    function channelLabel(value) {
+        if (value === 'game') return '游戏';
+        if (value === 'chat') return '闲聊';
+        return '综合';
+    }
+
+    // 更新频道/热门标签的选中态与标题
+    function updateCommunityFilterBar() {
+        if (communityTabs) {
+            Array.prototype.forEach.call(communityTabs.children, function (btn) {
+                const active = btn.dataset.hot
+                    ? communityHot
+                    : (!communityHot && btn.dataset.channel === communityChannel);
+                btn.classList.toggle('is-active', active);
+            });
+        }
+        if (communityTitle) {
+            if (communityHot) communityTitle.textContent = '热门榜';
+            else if (communityChannel === 'all') communityTitle.textContent = '全部消息';
+            else communityTitle.textContent = channelLabel(communityChannel) + '频道';
+        }
+    }
+
+    function renderCommunityAuthorFilter() {
+        const active = !!communityAuthorFilter;
+        if (communityAuthorFilterEl) communityAuthorFilterEl.hidden = !active;
+        if (communityAuthorName && communityAuthorFilter) {
+            communityAuthorName.textContent = communityAuthorFilter.nickname;
+        }
+    }
+
+    function setCommunityAuthorFilter(post) {
+        if (!post) return;
+        communityAuthorFilter = { id: post.author_id, nickname: post.author.nickname };
+        renderCommunityAuthorFilter();
+        if (communityFeed) communityFeed.scrollTop = 0;
+        loadCommunity(true);
+    }
+
+    function clearCommunityAuthorFilter() {
+        communityAuthorFilter = null;
+        renderCommunityAuthorFilter();
+        loadCommunity(true);
+    }
+
     // 按当前选择的排序方式返回副本，不改动原始数组
     function sortCommunityPosts() {
         const list = communityBookmarkOnly
             ? communityPosts.filter(function (post) { return post.bookmarked; })
             : communityPosts.slice();
+        // 热门榜已按点赞数从高到低排好，不再做客户端排序
+        if (communityHot) return list;
         const timeOf = function (post) {
             return new Date(post.created_at).getTime() || 0;
         };
@@ -2673,12 +2733,18 @@
 
         if (communityEmpty) {
             communityEmpty.hidden = list.length > 0;
-            communityEmpty.textContent = communityBookmarkOnly
-                ? '还没有收藏的帖子，点开一条消息后点「收藏」'
-                : '还没有人发言，来发第一条吧';
+            if (communityBookmarkOnly) {
+                communityEmpty.textContent = '还没有收藏的帖子，点开一条消息后点「收藏」';
+            } else if (communitySearch || communityAuthorFilter) {
+                communityEmpty.textContent = '没有找到匹配的帖子';
+            } else if (communityHot) {
+                communityEmpty.textContent = '还没有人点赞，快去给喜欢的帖子点赞吧';
+            } else {
+                communityEmpty.textContent = '还没有人发言，来发第一条吧';
+            }
         }
 
-        list.forEach(function (post) {
+        list.forEach(function (post, index) {
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'community-post community-post--compact';
@@ -2704,8 +2770,23 @@
             const name = document.createElement('span');
             name.className = 'community-post__name';
             name.textContent = post.author.nickname;
+            name.title = '只看 ' + post.author.nickname + ' 的帖子';
+            name.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                setCommunityAuthorFilter(post);
+            });
 
             meta.append(name);
+
+            if (post.channel) {
+                const channel = document.createElement('span');
+                channel.className = 'community-post__channel';
+                channel.dataset.channel = post.channel;
+                channel.textContent = channelLabel(post.channel);
+                meta.appendChild(channel);
+            }
+
             head.append(avatar, meta);
 
             // 收藏星标 + 点赞数
@@ -2726,6 +2807,15 @@
             marks.appendChild(likes);
 
             head.append(marks);
+
+            // 热门榜显示名次
+            if (communityHot) {
+                const rank = document.createElement('span');
+                rank.className = 'community-post__rank';
+                if (index < 3) rank.classList.add('community-post__rank--top');
+                rank.textContent = index + 1;
+                head.insertBefore(rank, head.firstChild);
+            }
 
             // 列表里只显示一行预览，超出用省略号
             const preview = document.createElement('p');
@@ -2948,7 +3038,12 @@
         time.className = 'community-detail__time';
         time.textContent = formatMessageTime(post.created_at);
 
-        meta.append(name, time);
+        const channel = document.createElement('span');
+        channel.className = 'community-post__channel';
+        channel.dataset.channel = post.channel || 'general';
+        channel.textContent = channelLabel(post.channel);
+
+        meta.append(name, time, channel);
         head.append(avatar, meta);
 
         const text = document.createElement('p');
@@ -3301,7 +3396,11 @@
     }
 
     async function loadCommunity(force, append) {
-        if (!append) renderCommunityState();
+        if (!append) {
+            renderCommunityState();
+            updateCommunityFilterBar();
+            renderCommunityAuthorFilter();
+        }
 
         if (!currentUser) {
             communityPosts = [];
@@ -3320,11 +3419,31 @@
         const reqId = ++communityRequestId;
         const offset = append ? communityPosts.length : 0;
 
-        const result = await sb
+        let postQuery = sb
             .from('community_posts')
-            .select('id, content, created_at, author_id, media')
-            .order('created_at', { ascending: false })
-            .range(offset, offset + COMMUNITY_PAGE_SIZE - 1);
+            .select('id, content, created_at, author_id, media, channel, likes_count');
+
+        if (communityHot) {
+            postQuery = postQuery.gt('likes_count', 0);
+        } else if (communityChannel !== 'all') {
+            postQuery = postQuery.eq('channel', communityChannel);
+        }
+        if (communitySearch) {
+            postQuery = postQuery.ilike('content', '%' + communitySearch + '%');
+        }
+        if (communityAuthorFilter) {
+            postQuery = postQuery.eq('author_id', communityAuthorFilter.id);
+        }
+
+        if (communityHot) {
+            postQuery = postQuery
+                .order('likes_count', { ascending: false })
+                .order('created_at', { ascending: false });
+        } else {
+            postQuery = postQuery.order('created_at', { ascending: false });
+        }
+
+        const result = await postQuery.range(offset, offset + COMMUNITY_PAGE_SIZE - 1);
 
         if (reqId !== communityRequestId) {
             communityLoadingMore = false;
@@ -3414,6 +3533,7 @@
                 author_id: row.author_id,
                 content: row.content,
                 created_at: row.created_at,
+                channel: row.channel || 'general',
                 media: media
                     .filter(function (item) { return item && item.url; })
                     .slice(0, 9)
@@ -3423,7 +3543,7 @@
                             type: item.type === 'video' ? 'video' : 'image'
                         };
                     }),
-                likes_count: likeCounts[row.id] || 0,
+                likes_count: (typeof row.likes_count === 'number' ? row.likes_count : (likeCounts[row.id] || 0)),
                 liked: !!likedIds[row.id],
                 bookmarked: !!bookmarkedIds[row.id],
                 author: authors[row.author_id] || {
@@ -3669,6 +3789,41 @@
         });
     }
 
+    // 频道标签 / 热门榜切换
+    if (communityTabs) {
+        Array.prototype.forEach.call(communityTabs.children, function (btn) {
+            btn.addEventListener('click', function () {
+                if (btn.dataset.hot) {
+                    communityHot = true;
+                    communityChannel = 'all';
+                } else {
+                    communityHot = false;
+                    communityChannel = btn.dataset.channel || 'all';
+                }
+                updateCommunityFilterBar();
+                if (communityFeed) communityFeed.scrollTop = 0;
+                loadCommunity(true);
+            });
+        });
+    }
+
+    // 关键词搜索（300ms 防抖）
+    let communitySearchTimer = null;
+    if (communitySearchInput) {
+        communitySearchInput.addEventListener('input', function () {
+            clearTimeout(communitySearchTimer);
+            communitySearchTimer = setTimeout(function () {
+                communitySearch = (communitySearchInput.value || '').trim();
+                if (communityFeed) communityFeed.scrollTop = 0;
+                loadCommunity(true);
+            }, 300);
+        });
+    }
+
+    if (communityAuthorClear) {
+        communityAuthorClear.addEventListener('click', clearCommunityAuthorFilter);
+    }
+
     // 列表滚到接近底部时自动加载下一页
     if (communityFeed) {
         communityFeed.addEventListener('scroll', function () {
@@ -3728,10 +3883,13 @@
                 submit.textContent = '发布中…';
             }
 
+            const channel = communityChannelInput ? communityChannelInput.value : 'general';
+
             const result = await sb.from('community_posts').insert({
                 author_id: currentUser.id,
                 content: text,
-                media: media
+                media: media,
+                channel: channel
             });
 
             submit.disabled = false;

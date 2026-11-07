@@ -1437,6 +1437,156 @@ button.friend-item:focus-visible {
     background: #101a2e;
 }
 
+/* 发布表单里的频道选择 */
+.community-form__channel {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.community-form__channel .field__label {
+    flex: none;
+    font-size: 12px;
+    color: rgba(170, 190, 225, 0.75);
+}
+
+.community-channel {
+    width: auto;
+}
+
+/* 频道标签栏 */
+.community-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0 0;
+}
+
+.community-tab {
+    flex: none;
+    padding: 6px 14px;
+    font: inherit;
+    font-size: 13px;
+    color: #dfe8ff;
+    background: rgba(14, 22, 40, 0.76);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.community-tab:hover {
+    border-color: rgba(180, 205, 255, 0.6);
+}
+
+.community-tab.is-active {
+    color: #fff;
+    border-color: rgba(180, 205, 255, 0.7);
+    background: rgba(40, 62, 104, 0.55);
+}
+
+.community-tab--hot.is-active {
+    border-color: rgba(255, 154, 162, 0.6);
+    background: rgba(96, 34, 46, 0.5);
+}
+
+/* 搜索 + 作者筛选 */
+.community-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.community-search__input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 7px 10px;
+    font-size: 13px;
+}
+
+.community-author-filter {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: #dfe8ff;
+    background: rgba(40, 62, 104, 0.5);
+    border: 1px solid rgba(180, 205, 255, 0.4);
+    border-radius: 6px;
+}
+
+.community-author-filter b {
+    font-weight: 600;
+    color: #e6eeff;
+}
+
+.community-author-filter__clear {
+    padding: 0 4px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1;
+    color: rgba(205, 220, 250, 0.85);
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.community-author-filter__clear:hover {
+    color: #fff;
+}
+
+/* 帖子卡片上的频道徽章 */
+.community-post__channel {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    padding: 1px 7px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: rgba(170, 200, 255, 0.9);
+    background: rgba(40, 62, 104, 0.35);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 999px;
+}
+
+.community-post__channel[data-channel="game"] {
+    color: rgba(120, 220, 160, 0.9);
+    border-color: rgba(120, 220, 160, 0.3);
+    background: rgba(20, 70, 50, 0.3);
+}
+
+.community-post__channel[data-channel="chat"] {
+    color: rgba(255, 205, 120, 0.9);
+    border-color: rgba(255, 205, 120, 0.3);
+    background: rgba(80, 60, 20, 0.3);
+}
+
+/* 热门榜名次 */
+.community-post__rank {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(186, 204, 235, 0.6);
+    background: rgba(22, 34, 58, 0.5);
+    border: 1px solid rgba(158, 184, 232, 0.28);
+    border-radius: 6px;
+}
+
+.community-post__rank--top {
+    color: #ffd479;
+    border-color: rgba(255, 212, 121, 0.5);
+    background: rgba(96, 74, 24, 0.45);
+}
+
 .community-post {
     padding: 12px 14px;
     background: rgba(14, 22, 40, 0.72);

@@ -109,6 +109,14 @@
                         <form class="auth-form community-form" id="community-form" novalidate>
                             <textarea class="chat-input community-input" id="community-input" rows="3"
                                       maxlength="500" placeholder="和大家说点什么…" autocomplete="off"></textarea>
+                            <div class="community-form__channel">
+                                <label class="field__label" for="community-channel">发布到频道</label>
+                                <select class="community-sort community-channel" id="community-channel">
+                                    <option value="general">综合</option>
+                                    <option value="game">游戏</option>
+                                    <option value="chat">闲聊</option>
+                                </select>
+                            </div>
                             <div class="media-pick">
                                 <button class="friend-action media-pick__btn" id="community-attach" type="button">图片 / 视频</button>
                                 <span class="media-pick__name" id="community-attach-name">最多选 9 个</span>
@@ -122,8 +130,16 @@
                             <p class="auth-msg" id="community-msg" role="alert"></p>
                         </form>
 
+                        <div class="community-tabs" id="community-tabs" role="tablist">
+                            <button class="community-tab is-active" type="button" data-channel="all">全部</button>
+                            <button class="community-tab" type="button" data-channel="general">综合</button>
+                            <button class="community-tab" type="button" data-channel="game">游戏</button>
+                            <button class="community-tab" type="button" data-channel="chat">闲聊</button>
+                            <button class="community-tab community-tab--hot" type="button" data-hot="1">热门</button>
+                        </div>
+
                         <div class="community-list__head">
-                            <h3 class="section-title">最新消息</h3>
+                            <h3 class="section-title" id="community-title">全部消息</h3>
                             <div class="community-list__tools">
                                 <button class="community-filter" id="community-bookmark-filter" type="button" aria-pressed="false">只看收藏</button>
                                 <select class="community-sort" id="community-sort" aria-label="排序方式">
@@ -132,6 +148,15 @@
                                     <option value="hot">点赞最多</option>
                                     <option value="cold">点赞最少</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <div class="community-search">
+                            <input class="field__input community-search__input" id="community-search" type="search"
+                                   placeholder="搜索内容关键词…" autocomplete="off">
+                            <div class="community-author-filter" id="community-author-filter" hidden>
+                                <span>只看作者：<b id="community-author-name"></b></span>
+                                <button class="community-author-filter__clear" id="community-author-clear" type="button" aria-label="清除作者筛选">×</button>
                             </div>
                         </div>
                         <div class="community-list" id="community-feed"></div>
