@@ -1,0 +1,4362 @@
+﻿/**
+ * 登录 / 注册 / 会话保持 / 个人资料 / 注销账号 / 下载鉴权
+ * 依赖：@supabase/supabase-js CDN、supabase-config.js
+ */
+(function () {
+    'use strict';
+
+    const cfg = window.SUPABASE_CONFIG;
+
+    // SDK 或配置缺失时（多半是 CDN 没加载成功）仍然显示登录入口，提交时给出提示
+    if (!cfg || !cfg.url || !cfg.publishableKey || !window.supabase) {
+        const box = document.getElementById('nav-account');
+        if (box) {
+            const login = document.createElement('a');
+            login.href = '#login';
+            login.className = 'nav-link';
+            login.dataset.page = 'login';
+            login.textContent = '登录';
+            box.appendChild(login);
+        }
+        document.querySelectorAll('.auth-form').forEach(function (form) {
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                const el = form.querySelector('.auth-msg');
+                if (el) {
+                    el.textContent = '登录服务加载失败，请检查网络后刷新页面';
+                    el.dataset.state = 'error';
+                }
+            });
+        });
+        return;
+    }
+
+    const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
+
+    // 是否运行在桌面应用（Electron）里：由 preload 通过 contextBridge 注入 desktopAPI
+    const isDesktop = !!(window.desktopAPI && window.desktopAPI.isDesktop);
+
+    const accountBox = document.getElementById('nav-account');
+    const navProfile = document.getElementById('nav-profile');
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const profileForm = document.getElementById('profile-form');
+    const deleteForm = document.getElementById('delete-form');
+    const avatarButton = document.getElementById('avatar-pick');
+    const avatarEditBtn = document.getElementById('avatar-edit');
+    const avatarInput = document.getElementById('avatar-file');
+    const avatarImg = document.getElementById('profile-avatar-img');
+    const avatarFallback = document.getElementById('profile-avatar-fallback');
+    const profileNameEl = document.getElementById('profile-name');
+    const profileEmailEl = document.getElementById('profile-email');
+    const downloadButton = document.getElementById('download-latest');
+    const downloadMsg = document.getElementById('download-msg');
+
+    // 设置页
+    const navSettings = document.getElementById('nav-settings');
+    const settingsNickname = document.getElementById('settings-nickname');
+    const settingsEmail = document.getElementById('settings-email');
+    const settingsLogout = document.getElementById('settings-logout');
+    const settingsDownloadCard = document.getElementById('settings-download-card');
+    const settingsDownloadDir = document.getElementById('settings-download-dir');
+    const settingsChooseDir = document.getElementById('settings-choose-dir');
+    const downloadProgress = document.getElementById('download-progress');
+    const downloadProgressFill = document.getElementById('download-progress-fill');
+    const downloadProgressText = document.getElementById('download-progress-text');
+
+    // 好友与聊天
+    const navFriends = document.getElementById('nav-friends');
+    const friendsBadge = document.getElementById('friends-badge');
+    const friendsView = document.getElementById('friends-view');
+    const chatView = document.getElementById('chat-view');
+    const friendSearchForm = document.getElementById('friend-search-form');
+    const friendSearchMsg = document.getElementById('friend-search-msg');
+    const friendResultsWrap = document.getElementById('friend-results-wrap');
+    const friendResultsBox = document.getElementById('friend-results');
+    const friendRequestsWrap = document.getElementById('friend-requests-wrap');
+    const friendRequestsBox = document.getElementById('friend-requests');
+    const friendsListBox = document.getElementById('friends-list');
+    const friendsEmpty = document.getElementById('friends-empty');
+    const chatBackBtn = document.getElementById('chat-back');
+    const chatAvatar = document.getElementById('chat-avatar');
+    const chatName = document.getElementById('chat-name');
+    const chatScroll = document.getElementById('chat-scroll');
+    const chatMessagesBox = document.getElementById('chat-messages');
+    const chatEmpty = document.getElementById('chat-empty');
+    const chatForm = document.getElementById('chat-form');
+    const chatInput = document.getElementById('chat-input');
+    const chatMsg = document.getElementById('chat-msg');
+    const chatAttachBtn = document.getElementById('chat-attach');
+    const chatFileInput = document.getElementById('chat-file');
+    const chatAttachBar = document.getElementById('chat-attach-bar');
+    const chatAttachName = document.getElementById('chat-attach-name');
+    const chatAttachClear = document.getElementById('chat-attach-clear');
+    const chatBlockBtn = document.getElementById('chat-block');
+    const chatReportBtn = document.getElementById('chat-report');
+    const blockedWrap = document.getElementById('blocked-wrap');
+    const blockedListBox = document.getElementById('blocked-list');
+    // 他人资料页
+    const userAvatarImg = document.getElementById('user-avatar-img');
+    const userAvatarFallback = document.getElementById('user-avatar-fallback');
+    const userNameEl = document.getElementById('user-name');
+    const userEmailEl = document.getElementById('user-email');
+    const userAddBtn = document.getElementById('user-add-friend');
+    const userMessageBtn = document.getElementById('user-message');
+    const userPostsBox = document.getElementById('user-posts');
+    const userPostsEmpty = document.getElementById('user-posts-empty');
+    const userBioEl = document.getElementById('user-bio');
+    const userMetaEl = document.getElementById('user-meta');
+    const userGallery = document.getElementById('user-gallery');
+    const userDetailEmpty = document.getElementById('user-detail-empty');
+    const userDetailBody = document.getElementById('user-detail-body');
+    const userMsg = document.getElementById('user-msg');
+
+    // 通知中心
+    const navNotice = document.getElementById('nav-notice');
+    const navNoticeWrap = document.getElementById('nav-notice-wrap');
+    const noticeBadge = document.getElementById('notice-badge');
+    const noticePanel = document.getElementById('notice-panel');
+    const noticeList = document.getElementById('notice-list');
+    const noticeEmpty = document.getElementById('notice-empty');
+    const noticeReadAll = document.getElementById('notice-read-all');
+
+    // 社区
+    const communityForm = document.getElementById('community-form');
+    const communityInput = document.getElementById('community-input');
+    const communityCount = document.getElementById('community-count');
+    const communityMsg = document.getElementById('community-msg');
+    const communityFeed = document.getElementById('community-feed');
+    const communityEmpty = document.getElementById('community-empty');
+    const communityGuest = document.getElementById('community-guest');
+    const communityMain = document.getElementById('community-main');
+    const communityDetailEmpty = document.getElementById('community-detail-empty');
+    const communityDetailBody = document.getElementById('community-detail-body');
+    const communityAttachBtn = document.getElementById('community-attach');
+    const communityFileInput = document.getElementById('community-file');
+    const communityAttachName = document.getElementById('community-attach-name');
+    const communityAttachList = document.getElementById('community-attach-list');
+    const communitySortSelect = document.getElementById('community-sort');
+    const communityMoreBtn = document.getElementById('community-more');
+    const communityBookmarkFilter = document.getElementById('community-bookmark-filter');
+    const communityChannelInput = document.getElementById('community-channel');
+    const communityTabs = document.getElementById('community-tabs');
+    const communityTitle = document.getElementById('community-title');
+    const communitySearchInput = document.getElementById('community-search');
+    const communityAuthorFilterEl = document.getElementById('community-author-filter');
+    const communityAuthorName = document.getElementById('community-author-name');
+    const communityAuthorClear = document.getElementById('community-author-clear');
+
+    const AVATAR_BUCKET = 'avatars';
+    const AVATAR_MAX_SIZE = 2 * 1024 * 1024;
+    const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+    // 社区动态和聊天共用的图片/视频存储桶
+    const MEDIA_BUCKET = 'media';
+    const MEDIA_MAX_SIZE = 25 * 1024 * 1024;
+
+    // 社区列表首屏只加载 20 条，滚动到底再追加
+    const COMMUNITY_PAGE_SIZE = 20;
+
+    let currentUser = null;
+    let currentProfile = null;
+
+    let friends = [];            // [{ id, nickname, avatar_url, updated_at }]
+    let pendingRequests = [];    // [{ id, from_id, nickname, avatar_url, updated_at }]
+    let pendingOutgoing = {};    // to_id -> true
+    let searchResults = [];
+    let activeFriend = null;
+    let viewedUser = null;       // 正在查看的他人资料
+    let userPosts = [];          // 资料页左侧的动态列表（已富化）
+    let activeUserPostId = null; // 资料页右侧当前打开的帖子
+    let unreadByFriend = {};     // friend_id -> 未读条数
+    let realtimeChannel = null;
+    let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
+    let aliasMap = {};           // 好友备注名 friend_id -> alias（本机保存）
+    let presenceCache = {};      // friend_id -> last_seen 时间戳
+    let presenceTimer = null;
+    let profileCache = {};       // 用户资料内存缓存 id -> { at, data }
+    let commentCache = {};       // 帖子评论缓存 post_id -> { at, rows, authors }
+    const PROFILE_CACHE_TTL = 5 * 60 * 1000;
+    const COMMENT_CACHE_TTL = 60 * 1000;
+    let chatKeyCache = {};       // friend_id -> AES-GCM CryptoKey
+    let localKeyPair = null;     // 本机 ECDH 密钥对
+    let chatFile = null;         // 待发送的图片/视频
+
+    // 社区
+    let communityPosts = [];
+    let communityRequestId = 0;
+    let communityLoadedAt = 0;
+    let activeCommunityPostId = null;
+    let communityFiles = [];     // 待发布的图片/视频（最多 9 个）
+    let communitySort = 'new';   // new / old / hot / cold
+    let communityBookmarkOnly = false;  // 只看自己收藏的帖子
+    let communityHasMore = false;       // 是否还有更早的帖子
+    let communityLoadingMore = false;   // 防止滚动重复触发
+    let communityChannel = 'all';       // all / general / game / chat
+    let communityHot = false;           // 热门榜
+    let communitySearch = '';           // 内容关键词
+    let communityAuthorFilter = null;   // { id, nickname }
+
+    // 通知中心
+    let notifications = [];         // [{ id, type, actor_id, post_id, content, read, created_at, actor }]
+    let noticeUnread = 0;           // 未读条数
+    let noticeReloadTimer = null;   // 合并实时推送触发的刷新
+
+    function goPage(name) {
+        if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
+            window.SilguSite.showPage(name);
+        } else {
+            location.hash = name;
+        }
+    }
+
+    function showMessage(form, text, state) {
+        if (!form) return;
+        const el = form.querySelector('.auth-msg');
+        if (!el) return;
+        el.textContent = text || '';
+        el.dataset.state = text ? (state || 'error') : '';
+    }
+
+    function translateError(message) {
+        if (/Invalid login credentials/i.test(message)) return '邮箱或密码错误';
+        if (/Email not confirmed/i.test(message)) return '邮箱还没验证，请先完成邮箱验证';
+        if (/User already registered|already confirmed/i.test(message)) return '这个邮箱已经注册过了，请直接登录';
+        if (/Password should be at least/i.test(message)) return '密码至少 6 位';
+        if (/Unable to validate email/i.test(message)) return '邮箱格式不正确';
+        if (/Token has expired|expired or is invalid|invalid.*token/i.test(message)) return '验证码已过期，请重新发送';
+        if (/Token.*not found|otp.*not found/i.test(message)) return '验证码不正确，请检查后重试';
+        if (/rate limit|too many/i.test(message)) return '操作太频繁，稍后再试';
+        if (/Failed to fetch/i.test(message)) return '连不上服务器，检查网络后重试';
+        if (/Bucket not found/i.test(message)) return '头像存储桶不存在，请先完成数据库初始化';
+        if (/permission denied/i.test(message)) return '数据库权限没配置好，请先执行授权脚本';
+        if (/row-level security/i.test(message)) return '没有权限执行这个操作，请先完成数据库初始化';
+        if (/does not exist/i.test(message)) return '数据库还没初始化，请先在 Supabase 执行初始化脚本';
+        return message;
+    }
+
+    // 好友相关操作的错误提示，补上「可能还没执行初始化脚本」的指引
+    function socialError(err) {
+        const message = (err && err.message) || '';
+        if (/Could not find the function|does not exist|schema cache/i.test(message)) {
+            return '好友功能还没初始化，请先在 Supabase 执行好友初始化脚本';
+        }
+        if (/duplicate key/i.test(message)) return '已经发过申请了，等对方处理吧';
+        return translateError(message);
+    }
+
+    function displayNameOf(user) {
+        const name = ((user && user.email) || '').split('@')[0];
+        return name || '玩家';
+    }
+
+    function nicknameOf() {
+        if (currentProfile && currentProfile.nickname) return currentProfile.nickname;
+        return displayNameOf(currentUser);
+    }
+
+    function initialOf() {
+        return (nicknameOf() || '?').trim().charAt(0).toUpperCase();
+    }
+
+    // 头像地址带上资料更新时间，覆盖上传后不会读到浏览器旧缓存
+    function avatarSrc() {
+        if (!currentProfile || !currentProfile.avatar_url) return '';
+        const base = currentProfile.avatar_url;
+        const stamp = currentProfile.updated_at ? new Date(currentProfile.updated_at).getTime() : 0;
+        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 't=' + stamp;
+    }
+
+    function renderAccount() {
+        if (!accountBox) return;
+        accountBox.textContent = '';
+
+        if (navProfile) navProfile.hidden = !currentUser;
+        if (navFriends) navFriends.hidden = !currentUser;
+        if (navSettings) navSettings.hidden = !currentUser;
+        renderBadge();
+
+        if (currentUser) {
+            const avatar = document.createElement('a');
+            avatar.href = '#profile';
+            avatar.className = 'nav-avatar';
+            avatar.title = '个人资料';
+            avatar.setAttribute('aria-label', '个人资料');
+            avatar.addEventListener('click', function (e) {
+                e.preventDefault();
+                goPage('profile');
+            });
+
+            const src = avatarSrc();
+            if (src) {
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = '';
+                avatar.appendChild(img);
+            } else {
+                avatar.textContent = initialOf();
+            }
+
+            // 头像右侧显示昵称，点它也能进入个人资料
+            const name = document.createElement('a');
+            name.href = '#profile';
+            name.className = 'nav-account__name';
+            name.title = '个人资料';
+            name.textContent = nicknameOf();
+            name.addEventListener('click', function (e) {
+                e.preventDefault();
+                goPage('profile');
+            });
+
+            const logout = document.createElement('button');
+            logout.type = 'button';
+            logout.className = 'nav-link nav-account__logout';
+            logout.dataset.action = 'logout';
+            logout.textContent = '退出';
+
+            accountBox.append(avatar, name, logout);
+            return;
+        }
+
+        const login = document.createElement('a');
+        login.href = '#login';
+        login.className = 'nav-link';
+        login.dataset.page = 'login';
+        login.textContent = '登录';
+        accountBox.appendChild(login);
+    }
+
+    function renderProfilePage() {
+        if (!profileForm) return;
+
+        if (!currentUser) {
+            if (profileNameEl) profileNameEl.textContent = '';
+            if (profileEmailEl) profileEmailEl.textContent = '';
+            if (profileForm.nickname) profileForm.nickname.value = '';
+            return;
+        }
+
+        const src = avatarSrc();
+
+        if (avatarFallback) avatarFallback.textContent = initialOf();
+
+        if (avatarImg) {
+            if (src) {
+                avatarImg.src = src;
+                avatarImg.hidden = false;
+                if (avatarFallback) avatarFallback.hidden = true;
+            } else {
+                avatarImg.hidden = true;
+                avatarImg.removeAttribute('src');
+                if (avatarFallback) avatarFallback.hidden = false;
+            }
+        }
+
+        if (profileNameEl) profileNameEl.textContent = nicknameOf();
+        if (profileEmailEl) profileEmailEl.textContent = currentUser.email || '';
+        if (profileForm.nickname) profileForm.nickname.value = nicknameOf();
+        if (profileForm.bio) profileForm.bio.value = (currentProfile && currentProfile.bio) || '';
+    }
+
+    async function loadProfile(user) {
+        if (!user) {
+            currentProfile = null;
+            return;
+        }
+
+        try {
+            const result = await sb
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .maybeSingle();
+
+            if (result.error) throw result.error;
+
+            if (result.data) {
+                currentProfile = result.data;
+                cacheSelfProfile();
+                return;
+            }
+
+            // 触发器没建好时兜底：第一次登录顺手补一条资料
+            const nickname = displayNameOf(user);
+            const inserted = await sb
+                .from('profiles')
+                .insert({ id: user.id, nickname: nickname })
+                .select('*')
+                .maybeSingle();
+
+            currentProfile = inserted.data || {
+                nickname: nickname,
+                avatar_url: null,
+                updated_at: null,
+                public_key: null
+            };
+            cacheSelfProfile();
+        } catch (err) {
+            currentProfile = {
+                nickname: displayNameOf(user),
+                avatar_url: null,
+                updated_at: null,
+                public_key: null
+            };
+            cacheSelfProfile();
+            console.warn('读取个人资料失败：', err);
+        }
+    }
+
+    async function syncUser(user) {
+        const previousId = currentUser ? currentUser.id : null;
+        currentUser = user || null;
+        await loadProfile(currentUser);
+        loadAliases();
+        renderAccount();
+        renderProfilePage();
+        renderCommunityState();
+
+        // 登录状态变化时重新加载好友数据、重建实时订阅
+        const currentId = currentUser ? currentUser.id : null;
+        if (currentId !== previousId) {
+            stopRealtime();
+            chatKeyCache = {};
+            localKeyPair = null;
+            if (currentId) {
+                startRealtime();
+                publishPublicKey();
+                startPresence();
+            } else {
+                stopPresence();
+            }
+            refreshSocial();
+            communityLoadedAt = 0;
+            loadCommunity();
+            loadNotifications();
+        }
+
+        // 退出后仍停在需要登录的页面时回到登录页
+        if (!currentUser && (location.hash === '#profile' || location.hash === '#friends')) {
+            goPage('login');
+        }
+    }
+
+    if (accountBox) {
+        accountBox.addEventListener('click', function (e) {
+            if (e.target.closest('[data-action="logout"]')) {
+                e.preventDefault();
+                sb.auth.signOut();
+            }
+        });
+    }
+
+    if (loginForm) {
+        loginForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const email = loginForm.email.value.trim();
+            const password = loginForm.password.value;
+            const submit = loginForm.querySelector('button[type="submit"]');
+
+            showMessage(loginForm, '');
+            submit.disabled = true;
+            submit.textContent = '登录中…';
+
+            const result = await sb.auth.signInWithPassword({ email, password });
+
+            submit.disabled = false;
+            submit.textContent = '登录';
+
+            if (result.error) {
+                if (/Email not confirmed/i.test(result.error.message)) {
+                    showMessage(loginForm, '邮箱还没验证，请到注册页重新发送验证码');
+                    goPage('register');
+                    if (registerForm) {
+                        registerForm.email.value = email;
+                        registerForm.password.focus();
+                    }
+                    return;
+                }
+                showMessage(loginForm, translateError(result.error.message));
+                return;
+            }
+
+            loginForm.reset();
+            goPage('home');
+        });
+    }
+
+    if (registerForm) {
+        const sendBtn = document.getElementById('send-code');
+        const tokenInput = registerForm.querySelector('input[name="token"]');
+        let sentEmail = '';
+        let countdown = 0;
+        let timer = null;
+
+        function checkFields() {
+            const email = registerForm.email.value.trim();
+            const password = registerForm.password.value;
+            const confirm = registerForm.confirm.value;
+
+            if (!/^\S+@\S+\.\S+$/.test(email)) {
+                showMessage(registerForm, '邮箱格式不正确');
+                return null;
+            }
+            if (password.length < 6) {
+                showMessage(registerForm, '密码至少 6 位');
+                return null;
+            }
+            if (password !== confirm) {
+                showMessage(registerForm, '两次输入的密码不一致');
+                return null;
+            }
+            return { email: email, password: password };
+        }
+
+        function startCountdown() {
+            countdown = 60;
+            sendBtn.disabled = true;
+            sendBtn.textContent = countdown + ' 秒后可重发';
+            timer = setInterval(function () {
+                countdown -= 1;
+                if (countdown > 0) {
+                    sendBtn.textContent = countdown + ' 秒后可重发';
+                    return;
+                }
+                clearInterval(timer);
+                timer = null;
+                sendBtn.disabled = false;
+                sendBtn.textContent = '重新发送';
+            }, 1000);
+        }
+
+        async function sendCode() {
+            const data = checkFields();
+            if (!data) return;
+
+            showMessage(registerForm, '');
+            sendBtn.disabled = true;
+            sendBtn.textContent = '发送中…';
+
+            let result;
+            if (sentEmail === data.email) {
+                // 同一邮箱已发过码，直接重发，避免 signUp 报"已注册"
+                result = await sb.auth.resend({ type: 'signup', email: data.email });
+            } else {
+                result = await sb.auth.signUp({
+                    email: data.email,
+                    password: data.password,
+                    options: {
+                        // 邮件里的跳转会回到当前站点
+                        emailRedirectTo: location.origin + location.pathname
+                    }
+                });
+
+                // 邮箱已存在时 Supabase 可能不报错而是返回空 identities，改用重发
+                const exists = result.data && result.data.user &&
+                    Array.isArray(result.data.user.identities) &&
+                    result.data.user.identities.length === 0;
+
+                if ((result.error && /User already registered/i.test(result.error.message)) || exists) {
+                    result = await sb.auth.resend({ type: 'signup', email: data.email });
+                }
+            }
+
+            if (result.error) {
+                sendBtn.disabled = false;
+                sendBtn.textContent = sentEmail === data.email ? '重新发送' : '发送验证码';
+                showMessage(registerForm, translateError(result.error.message));
+                return;
+            }
+
+            // 邮箱验证被关闭时会直接拿到 session
+            if (result.data && result.data.session) {
+                goPage('home');
+                return;
+            }
+
+            sentEmail = data.email;
+            startCountdown();
+            showMessage(registerForm, '验证码已发送，请查收邮箱（含垃圾邮件箱）', 'success');
+            if (tokenInput) tokenInput.focus();
+        }
+
+        sendBtn.addEventListener('click', sendCode);
+
+        registerForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const email = registerForm.email.value.trim();
+            const token = tokenInput ? tokenInput.value.replace(/\s+/g, '') : '';
+            const submit = registerForm.querySelector('button[type="submit"]');
+
+            if (!sentEmail || sentEmail !== email) {
+                showMessage(registerForm, '请先点击「发送验证码」');
+                return;
+            }
+            if (!/^\d{8}$/.test(token)) {
+                showMessage(registerForm, '请输入 8 位数字验证码');
+                return;
+            }
+
+            showMessage(registerForm, '');
+            submit.disabled = true;
+            submit.textContent = '验证中…';
+
+            const result = await sb.auth.verifyOtp({
+                email: email,
+                token: token,
+                type: 'signup'
+            });
+
+            submit.disabled = false;
+            submit.textContent = '注册并登录';
+
+            if (result.error) {
+                showMessage(registerForm, translateError(result.error.message));
+                return;
+            }
+
+            registerForm.reset();
+            sentEmail = '';
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+            sendBtn.disabled = false;
+            sendBtn.textContent = '发送验证码';
+            goPage('home');
+        });
+    }
+
+    // ===== 个人资料 =====
+
+    if (profileForm) {
+        profileForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                showMessage(profileForm, '请先登录');
+                goPage('login');
+                return;
+            }
+
+            const nickname = profileForm.nickname.value.trim();
+            if (nickname.length < 1 || nickname.length > 20) {
+                showMessage(profileForm, '昵称需要 1-20 个字符');
+                return;
+            }
+
+            const bio = profileForm.bio ? profileForm.bio.value.trim() : '';
+            if (bio.length > 200) {
+                showMessage(profileForm, '个性签名最多 200 个字符');
+                return;
+            }
+
+            const submit = profileForm.querySelector('button[type="submit"]');
+            showMessage(profileForm, '');
+            submit.disabled = true;
+            submit.textContent = '保存中…';
+
+            let result = await sb
+                .from('profiles')
+                .upsert({ id: currentUser.id, nickname: nickname, bio: bio }, { onConflict: 'id' })
+                .select('*')
+                .maybeSingle();
+
+            // 数据库还没加 bio 列时退回只存昵称，不让整个保存流程失败
+            let bioSaved = !result.error;
+            if (result.error && /bio|column|does not exist/i.test(result.error.message)) {
+                bioSaved = false;
+                result = await sb
+                    .from('profiles')
+                    .upsert({ id: currentUser.id, nickname: nickname }, { onConflict: 'id' })
+                    .select('*')
+                    .maybeSingle();
+            }
+
+            submit.disabled = false;
+            submit.textContent = '保存资料';
+
+            if (result.error) {
+                showMessage(profileForm, '保存失败：' + translateError(result.error.message));
+                return;
+            }
+
+            if (result.data) {
+                currentProfile = result.data;
+            } else {
+                currentProfile = {
+                    nickname: nickname,
+                    avatar_url: currentProfile ? currentProfile.avatar_url : null,
+                    updated_at: new Date().toISOString(),
+                    public_key: currentProfile ? currentProfile.public_key : null
+                };
+            }
+
+            cacheSelfProfile();
+
+            renderAccount();
+            renderProfilePage();
+
+            if (!bioSaved) {
+                showMessage(profileForm, '昵称已保存；个性签名需要先在 Supabase 执行新增 bio 列的 SQL', 'error');
+                return;
+            }
+            showMessage(profileForm, '资料已保存', 'success');
+        });
+    }
+
+    if (avatarButton && avatarInput) {
+        avatarButton.addEventListener('click', function () {
+            openOwnPublicProfile();
+        });
+
+    if (avatarEditBtn) {
+        avatarEditBtn.addEventListener('click', function () {
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+            avatarInput.click();
+        });
+    }
+
+        avatarInput.addEventListener('change', async function () {
+            const file = avatarInput.files && avatarInput.files[0];
+            avatarInput.value = '';
+            if (!file) return;
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+
+            if (AVATAR_TYPES.indexOf(file.type) === -1) {
+                showMessage(profileForm, '只支持 JPG / PNG / WebP / GIF 图片');
+                return;
+            }
+            if (file.size > AVATAR_MAX_SIZE) {
+                showMessage(profileForm, '图片不能超过 2MB');
+                return;
+            }
+
+            showMessage(profileForm, '');
+            avatarButton.disabled = true;
+
+            // 头像最长边压到 512px，省流量
+            const avatarFile = await compressImage(file, 512);
+
+            // 固定路径 + upsert：同一账号只保留一张头像，覆盖旧图
+            const path = currentUser.id + '/avatar';
+            const upload = await sb.storage
+                .from(AVATAR_BUCKET)
+                .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type, cacheControl: '3600' });
+
+            if (upload.error) {
+                avatarButton.disabled = false;
+                showMessage(profileForm, '头像上传失败：' + translateError(upload.error.message));
+                return;
+            }
+
+            const publicUrl = sb.storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl;
+
+            const saved = await sb
+                .from('profiles')
+                .upsert(
+                    { id: currentUser.id, nickname: nicknameOf(), avatar_url: publicUrl },
+                    { onConflict: 'id' }
+                )
+                .select('nickname, avatar_url, updated_at, public_key')
+                .maybeSingle();
+
+            avatarButton.disabled = false;
+
+            if (saved.error) {
+                showMessage(profileForm, '头像保存失败：' + translateError(saved.error.message));
+                return;
+            }
+
+            if (saved.data) currentProfile = saved.data;
+            cacheSelfProfile();
+
+            renderAccount();
+            renderProfilePage();
+            showMessage(profileForm, '头像已更新', 'success');
+        });
+    }
+
+    // ===== 注销账号 =====
+
+    if (deleteForm) {
+        deleteForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                showMessage(deleteForm, '请先登录');
+                goPage('login');
+                return;
+            }
+
+            const password = deleteForm.password.value;
+            const confirmText = deleteForm.confirm.value.trim();
+
+            if (confirmText !== '注销') {
+                showMessage(deleteForm, '请在确认框里输入「注销」两个字');
+                return;
+            }
+            if (!password) {
+                showMessage(deleteForm, '请输入当前密码');
+                return;
+            }
+
+            const submit = deleteForm.querySelector('button[type="submit"]');
+            showMessage(deleteForm, '');
+            submit.disabled = true;
+            submit.textContent = '注销中…';
+
+            // 先用密码重新验证身份，避免别人拿到已登录的电脑就能删号
+            const check = await sb.auth.signInWithPassword({
+                email: currentUser.email,
+                password: password
+            });
+
+            if (check.error) {
+                submit.disabled = false;
+                submit.textContent = '永久注销账号';
+                showMessage(deleteForm, '密码不正确，账号没有注销');
+                return;
+            }
+
+            const result = await sb.rpc('delete_my_account');
+
+            if (result.error) {
+                submit.disabled = false;
+                submit.textContent = '永久注销账号';
+                showMessage(deleteForm, '注销失败：' + translateError(result.error.message));
+                return;
+            }
+
+            try {
+                await sb.auth.signOut({ scope: 'local' });
+            } catch (err) {
+                console.warn('退出登录失败：', err);
+            }
+
+            currentUser = null;
+            currentProfile = null;
+            deleteForm.reset();
+            renderAccount();
+            renderProfilePage();
+            goPage('home');
+            window.alert('账号已注销，昵称、头像和账号信息都已永久删除。');
+        });
+    }
+
+    // ===== 好友与聊天 =====
+
+    function setSocialMsg(el, text, state) {
+        if (!el) return;
+        el.textContent = text || '';
+        el.dataset.state = text ? (state || 'error') : '';
+    }
+
+    function profileAvatarSrc(profile) {
+        if (!profile || !profile.avatar_url) return '';
+        const base = profile.avatar_url;
+        const stamp = profile.updated_at ? new Date(profile.updated_at).getTime() : 0;
+        return base + (base.indexOf('?') >= 0 ? '&' : '?') + 't=' + stamp;
+    }
+
+    function fillAvatar(el, profile, name) {
+        if (!el) return;
+        el.textContent = '';
+        const src = profileAvatarSrc(profile);
+        if (src) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = '';
+            el.appendChild(img);
+            return;
+        }
+        el.textContent = (name || '?').trim().charAt(0).toUpperCase();
+    }
+
+    function normalizeProfile(p) {
+        return {
+            id: p.id,
+            nickname: p.nickname || '玩家',
+            avatar_url: p.avatar_url || null,
+            updated_at: p.updated_at || null,
+            public_key: p.public_key || null,
+            bio: p.bio || '',
+            created_at: p.created_at || null
+        };
+    }
+
+    // 点社区头像进入对方资料页
+    function openUserProfile(person) {
+        if (!person || !person.id) return;
+        viewedUser = normalizeProfile(person);
+        goPage('user');
+    }
+
+    // 打开自己的公开资料（别人点我们头像看到的场面）
+    function openOwnPublicProfile() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        viewedUser = normalizeProfile({
+            id: currentUser.id,
+            nickname: nicknameOf(),
+            avatar_url: currentProfile ? currentProfile.avatar_url : null,
+            updated_at: currentProfile ? currentProfile.updated_at : null,
+            public_key: currentProfile ? currentProfile.public_key : null,
+            bio: currentProfile ? currentProfile.bio : '',
+            created_at: currentProfile ? currentProfile.created_at : null
+        });
+        goPage('user');
+    }
+
+    function renderUserFriendState() {
+        if (!userAddBtn) return;
+        if (!currentUser || !viewedUser) {
+            userAddBtn.hidden = true;
+            if (userMessageBtn) userMessageBtn.hidden = true;
+            return;
+        }
+
+        // 看的是自己：不显示加好友/发消息
+        if (viewedUser.id === currentUser.id) {
+            userAddBtn.hidden = true;
+            if (userMessageBtn) userMessageBtn.hidden = true;
+            return;
+        }
+
+        userAddBtn.hidden = false;
+        userAddBtn.disabled = false;
+        userAddBtn.textContent = '加好友';
+
+        const isFriend = friends.some(function (f) { return f.id === viewedUser.id; });
+        if (userMessageBtn) userMessageBtn.hidden = !isFriend;
+
+        if (isFriend) {
+            userAddBtn.textContent = '已是好友';
+            userAddBtn.disabled = true;
+            return;
+        }
+        if (pendingOutgoing[viewedUser.id]) {
+            userAddBtn.textContent = '已发送申请';
+            userAddBtn.disabled = true;
+            return;
+        }
+        if (pendingRequests.some(function (r) { return r.from_id === viewedUser.id; })) {
+            userAddBtn.textContent = '对方已申请你，去好友页处理';
+            userAddBtn.disabled = true;
+        }
+    }
+
+    function renderUserProfile() {
+        if (!viewedUser) {
+            goPage('community');
+            return;
+        }
+
+        const alias = aliasMap[viewedUser.id];
+        if (userNameEl) userNameEl.textContent = alias || viewedUser.nickname;
+        if (userEmailEl) userEmailEl.textContent = alias ? '（备注名显示）' : '社区用户';
+
+        if (userBioEl) {
+            const bio = (viewedUser.bio || '').trim();
+            userBioEl.textContent = bio;
+            userBioEl.hidden = !bio;
+        }
+        if (userMetaEl) userMetaEl.textContent = '';
+        if (userGallery) {
+            userGallery.textContent = '';
+            userGallery.hidden = true;
+        }
+
+        if (userAvatarImg && userAvatarFallback) {
+            const src = profileAvatarSrc(viewedUser);
+            if (src) {
+                userAvatarImg.src = src;
+                userAvatarImg.hidden = false;
+                userAvatarFallback.hidden = true;
+            } else {
+                userAvatarImg.hidden = true;
+                userAvatarImg.removeAttribute('src');
+                userAvatarFallback.hidden = false;
+                userAvatarFallback.textContent =
+                    (viewedUser.nickname || '?').trim().charAt(0).toUpperCase();
+            }
+        }
+
+        renderUserFriendState();
+        setSocialMsg(userMsg, '');
+        loadUserPosts();
+
+        // 好友关系可能还没加载过，后台补一次再刷新按钮
+        if (currentUser) {
+            refreshSocial().then(function () {
+                if (viewedUser) renderUserFriendState();
+            });
+        }
+    }
+
+    // 好友资料页里的「发消息」：进入好友页并打开聊天
+    async function messageViewedUser() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        if (!viewedUser) return;
+
+        let friend = friends.find(function (f) { return f.id === viewedUser.id; });
+        if (!friend) {
+            const people = await fetchProfiles([viewedUser.id]);
+            friend = people[0] || viewedUser;
+        }
+
+        goPage('friends');
+        openChat(friend);
+    }
+
+    // 资料页展示对方最近的社区动态
+    async function loadUserPosts() {
+        if (!userPostsBox || !viewedUser) return;
+
+        userPostsBox.textContent = '加载中…';
+        if (userPostsEmpty) userPostsEmpty.hidden = true;
+        const targetId = viewedUser.id;
+
+        // 清空右侧详情
+        activeUserPostId = null;
+        if (userDetailBody) {
+            userDetailBody.textContent = '';
+            userDetailBody.hidden = true;
+        }
+        if (userDetailEmpty) userDetailEmpty.hidden = false;
+
+        const result = await sb
+            .from('community_posts')
+            .select('id, content, media, created_at, author_id, channel')
+            .eq('author_id', targetId)
+            .order('created_at', { ascending: false })
+            .limit(10);
+
+        if (!viewedUser || viewedUser.id !== targetId) return;
+
+        userPostsBox.textContent = '';
+
+        if (result.error) {
+            userPostsBox.textContent = '读取动态失败：' + communityError(result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        const postIds = rows.map(function (r) { return r.id; });
+
+        // 动态总数、点赞数、我的点赞、我的收藏并行拉取
+        const queryResults = await Promise.all([
+            sb.from('community_posts')
+                .select('id', { count: 'exact', head: true })
+                .eq('author_id', targetId),
+            postIds.length
+                ? sb.from('community_likes').select('post_id').in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null }),
+            postIds.length && currentUser
+                ? sb.from('community_likes').select('post_id')
+                    .eq('user_id', currentUser.id).in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null }),
+            postIds.length && currentUser
+                ? sb.from('community_bookmarks').select('post_id')
+                    .eq('user_id', currentUser.id).in('post_id', postIds)
+                : Promise.resolve({ data: [], error: null })
+        ]);
+
+        if (!viewedUser || viewedUser.id !== targetId) return;
+
+        const countResult = queryResults[0];
+        let likeCounts = {};
+        if (!queryResults[1].error) {
+            (queryResults[1].data || []).forEach(function (like) {
+                likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1;
+            });
+        }
+        let likedIds = {};
+        if (!queryResults[2].error) {
+            (queryResults[2].data || []).forEach(function (like) { likedIds[like.post_id] = true; });
+        }
+        let bookmarkedIds = {};
+        if (!queryResults[3].error) {
+            (queryResults[3].data || []).forEach(function (mark) { bookmarkedIds[mark.post_id] = true; });
+        }
+
+        // 富化为详情渲染需要的结构（作者就是被查看的用户）
+        const author = normalizeProfile(viewedUser);
+        userPosts = rows.map(function (row) {
+            const media = Array.isArray(row.media) ? row.media : [];
+            return {
+                id: row.id,
+                author_id: row.author_id,
+                content: row.content,
+                created_at: row.created_at,
+                channel: row.channel || 'general',
+                media: media
+                    .filter(function (item) { return item && item.url; })
+                    .slice(0, 9)
+                    .map(function (item) {
+                        return {
+                            url: item.url,
+                            type: item.type === 'video' ? 'video' : 'image'
+                        };
+                    }),
+                likes_count: likeCounts[row.id] || 0,
+                liked: !!likedIds[row.id],
+                bookmarked: !!bookmarkedIds[row.id],
+                author: author
+            };
+        });
+
+        // 加入时间 + 动态总数
+        const total = (countResult && typeof countResult.count === 'number') ? countResult.count : rows.length;
+        const meta = [];
+        const joined = viewedUser.created_at ? new Date(viewedUser.created_at) : null;
+        if (joined && !isNaN(joined.getTime())) {
+            meta.push('加入于 ' + joined.getFullYear() + '-' +
+                String(joined.getMonth() + 1).padStart(2, '0'));
+        }
+        meta.push(total + ' 条动态');
+        if (userMetaEl) userMetaEl.textContent = meta.join(' · ');
+
+        // 图片墙：最近动态里的图片，最多 6 张，可点开大图
+        const pics = [];
+        userPosts.forEach(function (post) {
+            post.media.forEach(function (m) {
+                if (pics.length < 6 && m.type === 'image') pics.push(m);
+            });
+        });
+        if (userGallery) {
+            userGallery.textContent = '';
+            userGallery.hidden = pics.length === 0;
+            pics.forEach(function (pic, index) {
+                const cell = document.createElement('button');
+                cell.className = 'user-gallery__cell';
+                cell.type = 'button';
+                cell.appendChild(createMediaThumb(pic));
+                cell.addEventListener('click', function () {
+                    openMediaViewer(pics, index);
+                });
+                userGallery.appendChild(cell);
+            });
+        }
+
+        if (!userPosts.length) {
+            if (userPostsEmpty) userPostsEmpty.hidden = false;
+            return;
+        }
+
+        userPosts.forEach(function (post) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'user-post';
+            item.dataset.postId = post.id;
+            item.addEventListener('click', function () {
+                openUserPostDetail(post);
+            });
+
+            const mediaLabel = communityMediaLabel(post.media);
+            const text = document.createElement('p');
+            text.className = 'user-post__text';
+            text.textContent = (mediaLabel ? mediaLabel + ' ' : '') +
+                (post.content || (mediaLabel ? '' : '（无内容）'));
+
+            const foot = document.createElement('span');
+            foot.className = 'user-post__foot';
+
+            const time = document.createElement('span');
+            time.className = 'user-post__time';
+            time.textContent = formatMessageTime(post.created_at);
+
+            const likes = document.createElement('span');
+            likes.className = 'user-post__likes';
+            likes.textContent = '♥ ' + (post.likes_count || 0);
+
+            foot.append(time, likes);
+            item.append(text, foot);
+            userPostsBox.appendChild(item);
+        });
+    }
+
+    // 资料页右侧渲染完整帖子（复用社区详情）
+    function openUserPostDetail(post) {
+        activeUserPostId = post.id;
+
+        if (userPostsBox) {
+            Array.prototype.forEach.call(userPostsBox.children, function (node) {
+                node.classList.toggle('is-active', node.dataset.postId === post.id);
+            });
+        }
+
+        if (!userDetailBody) return;
+        if (userDetailEmpty) userDetailEmpty.hidden = true;
+        userDetailBody.hidden = false;
+
+        renderPostDetail(post, userDetailBody);
+    }
+
+    if (userMessageBtn) {
+        userMessageBtn.addEventListener('click', messageViewedUser);
+    }
+
+    async function addFriendFromUserPage() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        if (!viewedUser || !userAddBtn) return;
+
+        userAddBtn.disabled = true;
+        const result = await sb.rpc('send_friend_request', { p_to: viewedUser.id });
+
+        if (result.error) {
+            userAddBtn.disabled = false;
+            setSocialMsg(userMsg, '发送失败：' + socialError(result.error));
+            return;
+        }
+
+        if (result.data === 'accepted' || result.data === 'already_friends') {
+            await refreshSocial();
+            renderUserFriendState();
+            setSocialMsg(userMsg, '你们已经是好友了', 'success');
+            return;
+        }
+
+        pendingOutgoing[viewedUser.id] = true;
+        renderUserFriendState();
+        setSocialMsg(userMsg, '好友申请已发送，等对方同意', 'success');
+    }
+
+    if (userAddBtn) {
+        userAddBtn.addEventListener('click', addFriendFromUserPage);
+    }
+
+    // ===== 端到端加密（ECDH P-256 + HKDF + AES-GCM） =====
+    const CHAT_KEY_STORAGE = 'silogu-chat-key-v1';
+    const CHAT_KEY_META = 'chat_key_v1';   // user_metadata 里的密钥备份字段
+    const CHAT_ENC_ALGO = 'ecdh-p256-aesgcm-v1';
+    const textEncoder = new TextEncoder();
+    const textDecoder = new TextDecoder();
+
+    function storageKeyFor(uid) {
+        return CHAT_KEY_STORAGE + ':' + uid;
+    }
+
+    function bytesToBase64(bytes) {
+        let binary = '';
+        const arr = new Uint8Array(bytes);
+        for (let i = 0; i < arr.length; i += 1) binary += String.fromCharCode(arr[i]);
+        return btoa(binary);
+    }
+
+    function base64ToBytes(value) {
+        const binary = atob(value);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+    }
+
+    function cryptoAvailable() {
+        return !!(window.crypto && window.crypto.subtle && window.isSecureContext);
+    }
+
+    async function importPairFromJwk(privateJwk, publicJwk) {
+        const privateKey = await crypto.subtle.importKey(
+            'jwk', privateJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']
+        );
+        const publicKey = await crypto.subtle.importKey(
+            'jwk', publicJwk, { name: 'ECDH', namedCurve: 'P-256' }, true, []
+        );
+        return { privateKey: privateKey, publicKey: publicKey, publicJwk: publicJwk, privateJwk: privateJwk };
+    }
+
+    // ===== 密钥备份：自动存进账号的 user_metadata，换设备/清缓存后自动恢复 =====
+    // 用户完全不需要导出/导入；同一账号在任何浏览器都会拿到同一份密钥
+
+    function readLocalKey(uid) {
+        try {
+            const raw = localStorage.getItem(storageKeyFor(uid));
+            if (!raw) return null;
+            const saved = JSON.parse(raw);
+            if (saved && saved.privateKey && saved.publicKey) return saved;
+        } catch (err) {
+            console.warn('读取本机密钥失败：', err);
+        }
+        return null;
+    }
+
+    function saveLocalKey(uid, privateJwk, publicJwk, createdAt) {
+        try {
+            localStorage.setItem(storageKeyFor(uid), JSON.stringify({
+                version: 1,
+                uid: uid,
+                privateKey: privateJwk,
+                publicKey: publicJwk,
+                createdAt: createdAt || new Date().toISOString()
+            }));
+        } catch (err) {
+            console.warn('保存本机密钥失败：', err);
+        }
+    }
+
+    function keyFromUser(user) {
+        const meta = user && user.user_metadata;
+        const saved = meta && meta[CHAT_KEY_META];
+        if (!saved || !saved.privateKey || !saved.publicKey) return null;
+        return saved;
+    }
+
+    async function fetchCloudKey() {
+        try {
+            const result = await sb.auth.getUser();
+            if (result.error) {
+                console.warn('读取云端密钥失败：', result.error);
+                return undefined;   // 读取失败（网络/鉴权）
+            }
+            // null 表示账号里还没有备份
+            return keyFromUser(result.data && result.data.user);
+        } catch (err) {
+            console.warn('读取云端密钥失败：', err);
+            return undefined;
+        }
+    }
+
+    async function backupCloudKey(privateJwk, publicJwk) {
+        try {
+            const result = await sb.auth.updateUser({
+                data: {
+                    [CHAT_KEY_META]: {
+                        privateKey: privateJwk,
+                        publicKey: publicJwk,
+                        createdAt: new Date().toISOString()
+                    }
+                }
+            });
+            if (result.error) console.warn('备份云端密钥失败：', result.error);
+            return !result.error;
+        } catch (err) {
+            console.warn('备份云端密钥失败：', err);
+            return false;
+        }
+    }
+
+    let keyPairInitializing = null;
+
+    // 同一时间只初始化一次，避免登录时两个入口各自生成一份密钥
+    function ensureLocalKeyPair() {
+        if (!currentUser) return Promise.resolve(null);
+        if (localKeyPair && localKeyPair.uid === currentUser.id) return Promise.resolve(localKeyPair);
+        if (!cryptoAvailable()) return Promise.resolve(null);
+
+        if (!keyPairInitializing) {
+            keyPairInitializing = initLocalKeyPair().finally(function () {
+                keyPairInitializing = null;
+            });
+        }
+        return keyPairInitializing;
+    }
+
+    async function initLocalKeyPair() {
+        const uid = currentUser.id;
+
+        // 以云端备份为准：任何设备都复用同一份密钥，不会各自生成、导致两边对不上
+        const cloud = await fetchCloudKey();
+        const local = readLocalKey(uid);
+        let saved = local;
+
+        if (cloud !== undefined) {
+            saved = cloud || local;
+        } else if (!local) {
+            // 读不到云端、本机也没有密钥时先不生成：离线生成的新密钥会覆盖云端备份
+            console.warn('暂时无法获取聊天密钥，请检查网络后刷新');
+            return null;
+        }
+
+        if (saved) {
+            try {
+                const imported = await importPairFromJwk(saved.privateKey, saved.publicKey);
+                if (!currentUser || currentUser.id !== uid) return null;
+                localKeyPair = {
+                    uid: uid,
+                    privateKey: imported.privateKey,
+                    publicKey: imported.publicKey,
+                    publicJwk: saved.publicKey,
+                    privateJwk: saved.privateKey
+                };
+                saveLocalKey(uid, saved.privateKey, saved.publicKey, saved.createdAt);
+                // 本机有旧密钥但云端还没有备份时，顺手补传一次
+                if (!cloud) await backupCloudKey(saved.privateKey, saved.publicKey);
+                return localKeyPair;
+            } catch (err) {
+                console.warn('导入已保存的聊天密钥失败，重新生成：', err);
+            }
+        }
+
+        const generated = await crypto.subtle.generateKey(
+            { name: 'ECDH', namedCurve: 'P-256' }, true, ['deriveBits']
+        );
+        const privateJwk = await crypto.subtle.exportKey('jwk', generated.privateKey);
+        const publicJwk = await crypto.subtle.exportKey('jwk', generated.publicKey);
+        if (!currentUser || currentUser.id !== uid) return null;
+
+        localKeyPair = {
+            uid: uid,
+            privateKey: generated.privateKey,
+            publicKey: generated.publicKey,
+            publicJwk: publicJwk,
+            privateJwk: privateJwk
+        };
+        saveLocalKey(uid, privateJwk, publicJwk);
+        await backupCloudKey(privateJwk, publicJwk);
+        return localKeyPair;
+    }
+
+    async function publishPublicKey() {
+        if (!currentUser) return;
+        const pair = await ensureLocalKeyPair();
+        if (!pair) return;
+
+        const keyText = JSON.stringify(pair.publicJwk);
+        if (currentProfile && currentProfile.public_key === keyText) return;
+
+        const result = await sb.from('profiles')
+            .update({ public_key: keyText })
+            .eq('id', currentUser.id);
+
+        if (result.error) {
+            console.warn('上传公钥失败：', result.error);
+            return;
+        }
+        if (currentProfile) currentProfile.public_key = keyText;
+    }
+
+    async function deriveChatKey(friend) {
+        if (!currentUser || !friend) throw new Error('未登录');
+        if (!cryptoAvailable()) throw new Error('当前环境不支持加密聊天，请用 HTTPS 打开本站');
+        if (!friend.public_key) throw new Error('对方还没有启用加密聊天，请让对方先打开一次「好友」页');
+
+        if (chatKeyCache[friend.id]) return chatKeyCache[friend.id];
+
+        const pair = await ensureLocalKeyPair();
+        if (!pair) throw new Error('无法初始化本机密钥');
+
+        const friendPublic = await crypto.subtle.importKey(
+            'jwk', JSON.parse(friend.public_key), { name: 'ECDH', namedCurve: 'P-256' }, true, []
+        );
+        const sharedBits = await crypto.subtle.deriveBits(
+            { name: 'ECDH', public: friendPublic }, pair.privateKey, 256
+        );
+        const hkdfKey = await crypto.subtle.importKey('raw', sharedBits, 'HKDF', false, ['deriveKey']);
+        const salt = textEncoder.encode([currentUser.id, friend.id].sort().join(':'));
+        const aesKey = await crypto.subtle.deriveKey(
+            { name: 'HKDF', hash: 'SHA-256', salt: salt, info: textEncoder.encode('silogu-chat-v1') },
+            hkdfKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+        );
+
+        chatKeyCache[friend.id] = aesKey;
+        return aesKey;
+    }
+
+    async function encryptMessage(key, plainText) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const cipher = await crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv }, key, textEncoder.encode(plainText)
+        );
+        return 'v1:' + bytesToBase64(iv) + ':' + bytesToBase64(new Uint8Array(cipher));
+    }
+
+    async function decryptMessage(key, payload) {
+        const parts = String(payload).split(':');
+        if (parts.length !== 3 || parts[0] !== 'v1') throw new Error('未知的密文格式');
+        const iv = base64ToBytes(parts[1]);
+        const cipher = base64ToBytes(parts[2]);
+        const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipher);
+        return textDecoder.decode(plain);
+    }
+
+    function renderBadge() {
+        if (!friendsBadge) return;
+        let total = pendingRequests.length;
+        Object.keys(unreadByFriend).forEach(function (key) {
+            const isFriend = friends.some(function (f) { return f.id === key; });
+            if (isFriend) total += unreadByFriend[key];
+        });
+        friendsBadge.textContent = total > 99 ? '99+' : String(total);
+        friendsBadge.hidden = !currentUser || total === 0;
+        if (navFriends) navFriends.hidden = !currentUser;
+    }
+
+    // ===== 通知中心 =====
+    function notificationText(n) {
+        const name = (n.actor && n.actor.nickname) ? n.actor.nickname : '有人';
+        if (n.type === 'friend_request') return name + ' 申请加你为好友';
+        if (n.type === 'message') return name + ' 给你发了条新消息';
+        if (n.type === 'like') return name + ' 赞了你的动态';
+        if (n.type === 'comment') {
+            const c = (n.content || '').trim();
+            return name + ' 评论了你的动态' + (c ? '：' + (c.length > 40 ? c.slice(0, 40) + '…' : c) : '');
+        }
+        return name + ' 给你发来一条通知';
+    }
+
+    function renderNoticeBadge() {
+        if (!noticeBadge) return;
+        noticeBadge.textContent = noticeUnread > 99 ? '99+' : String(noticeUnread);
+        noticeBadge.hidden = !currentUser || noticeUnread === 0;
+        if (navNoticeWrap) navNoticeWrap.hidden = !currentUser;
+    }
+
+    function renderNotifications() {
+        if (!noticeList) return;
+        noticeList.textContent = '';
+        if (noticeEmpty) noticeEmpty.hidden = notifications.length > 0;
+
+        notifications.forEach(function (n) {
+            const item = document.createElement('div');
+            item.className = 'notice-item' + (n.read ? '' : ' notice-item--unread');
+            item.dataset.noticeId = n.id;
+
+            if (!n.read) {
+                const dot = document.createElement('span');
+                dot.className = 'notice-item__dot';
+                item.appendChild(dot);
+            }
+
+            const body = document.createElement('div');
+            body.className = 'notice-item__body';
+
+            const text = document.createElement('div');
+            text.className = 'notice-item__text';
+            text.textContent = notificationText(n);
+
+            const time = document.createElement('div');
+            time.className = 'notice-item__time';
+            time.textContent = formatMessageTime(n.created_at);
+
+            body.append(text, time);
+            item.appendChild(body);
+
+            item.addEventListener('click', function () {
+                openNotice(n);
+            });
+
+            noticeList.appendChild(item);
+        });
+    }
+
+    function openNotice(n) {
+        if (!n.read && currentUser) {
+            n.read = true;
+            if (noticeUnread > 0) noticeUnread -= 1;
+            renderNoticeBadge();
+            renderNotifications();
+            sb.from('notifications').update({ read: true })
+                .eq('id', n.id)
+                .eq('user_id', currentUser.id);
+        }
+        closeNoticePanel();
+
+        if (n.type === 'friend_request' || n.type === 'message') {
+            goPage('friends');
+        } else if ((n.type === 'like' || n.type === 'comment') && n.post_id) {
+            openCommunityPostById(n.post_id);
+        }
+    }
+
+    async function loadNotifications() {
+        if (!currentUser) {
+            notifications = [];
+            noticeUnread = 0;
+            renderNotifications();
+            renderNoticeBadge();
+            return;
+        }
+
+        const result = await sb.from('notifications')
+            .select('id, type, actor_id, post_id, content, read, created_at')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (result.error) {
+            console.warn('读取通知失败：', result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        const actorIds = [];
+        rows.forEach(function (r) {
+            if (r.actor_id && actorIds.indexOf(r.actor_id) < 0) actorIds.push(r.actor_id);
+        });
+        const people = actorIds.length ? await fetchProfiles(actorIds) : [];
+        const map = {};
+        people.forEach(function (p) { map[p.id] = p; });
+
+        notifications = rows.map(function (r) {
+            r.actor = map[r.actor_id]
+                ? normalizeProfile(map[r.actor_id])
+                : { id: r.actor_id, nickname: '玩家', avatar_url: null };
+            return r;
+        });
+        noticeUnread = notifications.filter(function (n) { return !n.read; }).length;
+
+        renderNotifications();
+        renderNoticeBadge();
+    }
+
+    function scheduleNotificationsReload() {
+        clearTimeout(noticeReloadTimer);
+        noticeReloadTimer = setTimeout(function () { loadNotifications(); }, 400);
+    }
+
+    async function markAllNotificationsRead() {
+        if (!currentUser) return;
+
+        const result = await sb.from('notifications')
+            .update({ read: true })
+            .eq('user_id', currentUser.id)
+            .eq('read', false);
+
+        if (result.error) {
+            console.warn('标记通知已读失败：', result.error);
+            return;
+        }
+
+        notifications.forEach(function (n) { n.read = true; });
+        noticeUnread = 0;
+        renderNotifications();
+        renderNoticeBadge();
+    }
+
+    // 给某个用户写入一条通知（不给自己写）
+    async function notifyUser(userId, type, extra) {
+        if (!currentUser || !userId || userId === currentUser.id) return;
+        const row = {
+            user_id: userId,
+            actor_id: currentUser.id,
+            type: type
+        };
+        if (extra && extra.post_id) row.post_id = extra.post_id;
+        if (extra && extra.content) row.content = extra.content;
+        const result = await sb.from('notifications').insert(row);
+        if (result.error) console.warn('写入通知失败：', result.error);
+    }
+
+    function toggleNoticePanel(show) {
+        if (!noticePanel) return;
+        const next = typeof show === 'boolean' ? show : noticePanel.hidden;
+        noticePanel.hidden = !next;
+        if (next && currentUser) loadNotifications();
+    }
+
+    function closeNoticePanel() {
+        if (noticePanel) noticePanel.hidden = true;
+    }
+
+    // 点开某条动态（通知跳转用）：先加载社区列表，找不到再单条拉取
+    async function openCommunityPostById(postId) {
+        goPage('community');
+        await loadCommunity(true);
+
+        const existing = communityPosts.find(function (p) { return p.id === postId; });
+        if (existing) {
+            openCommunityPost(existing);
+            return;
+        }
+
+        const result = await sb.from('community_posts')
+            .select('id, content, created_at, author_id, media, channel, likes_count')
+            .eq('id', postId)
+            .maybeSingle();
+
+        if (result.error || !result.data) return;
+
+        const row = result.data;
+        const authors = await fetchProfiles([row.author_id]);
+        const post = {
+            id: row.id,
+            author_id: row.author_id,
+            content: row.content,
+            created_at: row.created_at,
+            channel: row.channel || 'general',
+            media: Array.isArray(row.media) ? row.media : [],
+            likes_count: row.likes_count || 0,
+            liked: false,
+            bookmarked: false,
+            author: normalizeProfile(authors[0] || { id: row.author_id })
+        };
+        openCommunityPost(post);
+    }
+
+    function renderFriends() {
+        if (!friendsListBox) return;
+        friendsListBox.textContent = '';
+        if (friendsEmpty) friendsEmpty.hidden = friends.length > 0;
+
+        friends.forEach(function (friend) {
+            const row = document.createElement('div');
+            row.className = 'friend-item friend-item--button';
+            row.dataset.friendId = friend.id;
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + friend.nickname + ' 的资料';
+            fillAvatar(avatar, friend, friend.nickname);
+            if (isFriendOnline(friend.id)) avatar.classList.add('friend-avatar--online');
+            avatar.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openUserProfile(friend);
+            });
+
+            const info = document.createElement('span');
+            info.className = 'friend-info';
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = friendDisplayName(friend);
+            info.appendChild(name);
+
+            const alias = aliasMap[friend.id];
+            if (alias && alias !== friend.nickname) {
+                const orig = document.createElement('span');
+                orig.className = 'friend-name--orig';
+                orig.textContent = friend.nickname;
+                info.appendChild(orig);
+            }
+
+            row.append(avatar, info);
+
+            const unread = unreadByFriend[friend.id] || 0;
+            if (unread > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'friend-unread';
+                badge.textContent = unread > 99 ? '99+' : String(unread);
+                row.appendChild(badge);
+            }
+
+            // 行尾操作：备注、删除
+            const ops = document.createElement('span');
+            ops.className = 'friend-item__ops';
+            ops.addEventListener('click', function (e) { e.stopPropagation(); });
+
+            const aliasBtn = document.createElement('button');
+            aliasBtn.type = 'button';
+            aliasBtn.className = 'friend-action friend-action--tiny';
+            aliasBtn.textContent = '备注';
+            aliasBtn.addEventListener('click', function () { setFriendAlias(friend); });
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'friend-action friend-action--tiny friend-action--danger';
+            delBtn.textContent = '删除';
+            delBtn.addEventListener('click', function () { removeFriend(friend.id); });
+
+            ops.append(aliasBtn, delBtn);
+            row.appendChild(ops);
+
+            // 点头像进资料，点其余位置聊天
+            row.addEventListener('click', function () {
+                openChat(friend);
+            });
+
+            friendsListBox.appendChild(row);
+        });
+    }
+
+    function renderRequests() {
+        if (!friendRequestsBox) return;
+        friendRequestsBox.textContent = '';
+        if (friendRequestsWrap) friendRequestsWrap.hidden = pendingRequests.length === 0;
+
+        pendingRequests.forEach(function (req) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + req.nickname + ' 的资料';
+            fillAvatar(avatar, req, req.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(req);
+            });
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = req.nickname;
+
+            const actions = document.createElement('span');
+            actions.className = 'friend-item__actions';
+
+            const accept = document.createElement('button');
+            accept.type = 'button';
+            accept.className = 'friend-action friend-action--primary';
+            accept.dataset.action = 'accept-request';
+            accept.dataset.requestId = req.requestId;
+            accept.textContent = '接受';
+
+            const reject = document.createElement('button');
+            reject.type = 'button';
+            reject.className = 'friend-action';
+            reject.dataset.action = 'reject-request';
+            reject.dataset.requestId = req.requestId;
+            reject.textContent = '忽略';
+
+            actions.append(accept, reject);
+            row.append(avatar, name, actions);
+            friendRequestsBox.appendChild(row);
+        });
+    }
+
+    function renderSearchResults() {
+        if (!friendResultsBox) return;
+        friendResultsBox.textContent = '';
+        if (friendResultsWrap) friendResultsWrap.hidden = searchResults.length === 0;
+
+        searchResults.forEach(function (person) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + person.nickname + ' 的资料';
+            fillAvatar(avatar, person, person.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(person);
+            });
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = person.emailMatch ? '邮箱匹配的用户（添加后可见昵称）' : person.nickname;
+
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'friend-action';
+
+            const isMe = currentUser && person.id === currentUser.id;
+            const isFriend = friends.some(function (f) { return f.id === person.id; });
+            const isPending = !!pendingOutgoing[person.id];
+
+            if (isMe) {
+                action.textContent = '你自己';
+                action.disabled = true;
+            } else if (isFriend) {
+                action.textContent = '已是好友';
+                action.disabled = true;
+            } else if (isPending) {
+                action.textContent = '已申请';
+                action.disabled = true;
+            } else {
+                action.textContent = '加好友';
+                action.dataset.action = 'add-friend';
+                action.dataset.userId = person.id;
+            }
+
+            row.append(avatar, name, action);
+            friendResultsBox.appendChild(row);
+        });
+    }
+
+    function cacheSelfProfile() {
+        if (currentUser && currentProfile) {
+            profileCache[currentUser.id] = {
+                at: Date.now(),
+                data: Object.assign({ id: currentUser.id }, currentProfile)
+            };
+        }
+    }
+
+    // 批量取用户资料：缓存里有的直接用，只查缺失的，好友/评论共用
+    async function fetchProfiles(ids) {
+        const unique = [];
+        ids.forEach(function (id) {
+            if (id && unique.indexOf(id) < 0) unique.push(id);
+        });
+
+        const now = Date.now();
+        const missing = unique.filter(function (id) {
+            const hit = profileCache[id];
+            return !(hit && now - hit.at < PROFILE_CACHE_TTL);
+        });
+
+        if (missing.length) {
+            const result = await sb.from('profiles')
+                .select('*')
+                .in('id', missing);
+
+            if (result.error) {
+                console.warn('读取用户资料失败：', result.error);
+            } else {
+                (result.data || []).forEach(function (person) {
+                    profileCache[person.id] = { at: now, data: person };
+                });
+            }
+        }
+
+        return unique.map(function (id) {
+            const hit = profileCache[id];
+            return hit ? hit.data : { id: id };
+        });
+    }
+
+    // ===== 在线状态（presence 表心跳） =====
+
+    const PRESENCE_ONLINE_MS = 90 * 1000;   // 90 秒内有心跳算在线
+
+    function heartbeatPresence() {
+        if (!currentUser) return;
+        sb.from('presence')
+            .upsert({ user_id: currentUser.id, last_seen: new Date().toISOString() }, { onConflict: 'user_id' })
+            .then(function (r) {
+                if (r.error) console.debug('presence 心跳失败：', r.error.message);
+            });
+    }
+
+    function startPresence() {
+        stopPresence();
+        heartbeatPresence();
+        presenceTimer = setInterval(heartbeatPresence, 30 * 1000);
+        window.addEventListener('beforeunload', heartbeatPresence);
+    }
+
+    function stopPresence() {
+        if (presenceTimer) {
+            clearInterval(presenceTimer);
+            presenceTimer = null;
+        }
+        window.removeEventListener('beforeunload', heartbeatPresence);
+    }
+
+    function isFriendOnline(uid) {
+        const t = presenceCache[uid];
+        if (!t) return false;
+        return Date.now() - t < PRESENCE_ONLINE_MS;
+    }
+
+    // ===== 好友备注名（本机保存） =====
+
+    function aliasStorageKey() {
+        return currentUser ? 'silogu-alias-' + currentUser.id : 'silogu-alias';
+    }
+
+    function loadAliases() {
+        if (!currentUser) {
+            aliasMap = {};
+            return;
+        }
+        try {
+            aliasMap = JSON.parse(localStorage.getItem(aliasStorageKey()) || '{}') || {};
+        } catch (err) {
+            aliasMap = {};
+        }
+    }
+
+    function saveAlias(friendId, alias) {
+        if (alias) aliasMap[friendId] = alias;
+        else delete aliasMap[friendId];
+        try {
+            localStorage.setItem(aliasStorageKey(), JSON.stringify(aliasMap));
+        } catch (err) { /* 空间不足时静默失败 */ }
+        renderFriends();
+    }
+
+    function friendDisplayName(friend) {
+        return aliasMap[friend.id] || friend.nickname;
+    }
+
+    function setFriendAlias(friend) {
+        const old = aliasMap[friend.id] || '';
+        const next = window.prompt('为 ' + friend.nickname + ' 设置备注名（留空清除备注）', old);
+        if (next === null) return;
+        const alias = next.trim().slice(0, 20);
+        saveAlias(friend.id, alias);
+    }
+
+    // ===== 删除好友 =====
+
+    async function removeFriend(friendId) {
+        if (!currentUser) return;
+        const friend = friends.find(function (f) { return f.id === friendId; });
+        if (!friend) return;
+        if (!window.confirm('删除好友「' + friendDisplayName(friend) + '」？删除后聊天记录仍然保留。')) return;
+
+        // RPC 双向删除，避免残留单向关系
+        const result = await sb.rpc('remove_friend', { p_friend: friendId });
+
+        if (result.error) {
+            setSocialMsg(friendSearchMsg, '删除失败：' + socialError(result.error));
+            return;
+        }
+
+        friends = friends.filter(function (f) { return f.id !== friendId; });
+        delete chatKeyCache[friendId];
+        delete aliasMap[friendId];
+        try {
+            localStorage.setItem(aliasStorageKey(), JSON.stringify(aliasMap));
+        } catch (err) { /* 忽略 */ }
+        if (activeFriend && activeFriend.id === friendId) closeChat();
+        renderFriends();
+        renderBadge();
+    }
+
+    async function loadFriends() {
+        if (!currentUser) {
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        const rel = await sb.from('friendships').select('friend_id').eq('user_id', currentUser.id);
+        if (rel.error) {
+            console.warn('读取好友列表失败：', rel.error);
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        const ids = (rel.data || []).map(function (r) { return r.friend_id; });
+        if (!ids.length) {
+            friends = [];
+            renderFriends();
+            return;
+        }
+
+        // 好友资料与在线状态并行拉取
+        const results = await Promise.all([
+            fetchProfiles(ids),
+            sb.from('presence').select('user_id, last_seen').in('user_id', ids)
+        ]);
+
+        const prof = results[0];
+        const presence = results[1];
+        if (!presence.error) {
+            (presence.data || []).forEach(function (p) {
+                presenceCache[p.user_id] = new Date(p.last_seen).getTime();
+            });
+        } else {
+            console.debug('读取好友在线状态失败（可能还没建 presence 表）：', presence.error.message);
+        }
+
+        const map = {};
+        prof.forEach(function (p) { map[p.id] = p; });
+
+        // 记下旧公钥，只有对方换了密钥设备时才丢弃对应的聊天密钥缓存
+        const previousKeys = {};
+        friends.forEach(function (f) { previousKeys[f.id] = f.public_key; });
+
+        friends = ids.map(function (id) {
+            return normalizeProfile(map[id] || { id: id });
+        }).sort(function (a, b) {
+            return a.nickname.localeCompare(b.nickname, 'zh-CN');
+        });
+
+        friends.forEach(function (f) {
+            if (previousKeys[f.id] && previousKeys[f.id] !== f.public_key) {
+                delete chatKeyCache[f.id];
+            }
+        });
+
+        if (activeFriend) {
+            const fresh = friends.find(function (f) { return f.id === activeFriend.id; });
+            if (fresh) activeFriend = fresh;
+        }
+
+        renderFriends();
+        renderBadge();
+    }
+
+    async function loadRequests() {
+        pendingOutgoing = {};
+        pendingRequests = [];
+
+        if (!currentUser) {
+            renderRequests();
+            renderBadge();
+            return;
+        }
+
+        // 已发出的申请和收到的申请并行查询，少一次往返
+        const results = await Promise.all([
+            sb.from('friend_requests')
+                .select('to_id')
+                .eq('from_id', currentUser.id)
+                .eq('status', 'pending'),
+            sb.from('friend_requests')
+                .select('id, from_id, created_at')
+                .eq('to_id', currentUser.id)
+                .eq('status', 'pending')
+                .order('created_at', { ascending: false })
+        ]);
+
+        const outgoing = results[0];
+        const list = results[1];
+
+        if (outgoing.error) console.warn('读取已发申请失败：', outgoing.error);
+        (outgoing.data || []).forEach(function (r) { pendingOutgoing[r.to_id] = true; });
+
+        if (list.error) {
+            console.warn('读取好友申请失败：', list.error);
+            renderRequests();
+            renderBadge();
+            return;
+        }
+
+        const senderIds = (list.data || []).map(function (r) { return r.from_id; });
+        const profiles = senderIds.length ? await fetchProfiles(senderIds) : [];
+
+        const map = {};
+        profiles.forEach(function (p) { map[p.id] = p; });
+
+        pendingRequests = (list.data || []).map(function (r) {
+            const result = normalizeProfile(map[r.from_id] || { id: r.from_id });
+            result.id = map[r.from_id] ? map[r.from_id].id : r.from_id;
+            result.requestId = r.id;
+            result.from_id = r.from_id;
+            result.created_at = r.created_at;
+            return result;
+        });
+
+        renderRequests();
+        renderBadge();
+    }
+
+    async function loadUnread() {
+        unreadByFriend = {};
+
+        if (!currentUser) {
+            renderBadge();
+            return;
+        }
+
+        const result = await sb.from('messages')
+            .select('sender_id')
+            .eq('receiver_id', currentUser.id)
+            .is('read_at', null)
+            .limit(1000);
+
+        if (result.error) {
+            console.warn('读取未读消息失败：', result.error);
+            renderBadge();
+            return;
+        }
+
+        (result.data || []).forEach(function (m) {
+            unreadByFriend[m.sender_id] = (unreadByFriend[m.sender_id] || 0) + 1;
+        });
+
+        renderBadge();
+    }
+
+    async function loadBlocked() {
+        blockedUsers = [];
+        if (!currentUser) {
+            renderBlocked();
+            return;
+        }
+
+        const result = await sb.rpc('list_blocked_users');
+        if (result.error) {
+            console.warn('读取黑名单失败：', result.error);
+            renderBlocked();
+            return;
+        }
+
+        blockedUsers = (result.data || []).map(normalizeProfile);
+        renderBlocked();
+    }
+
+    function renderBlocked() {
+        if (!blockedListBox) return;
+        blockedListBox.textContent = '';
+        if (blockedWrap) blockedWrap.hidden = blockedUsers.length === 0;
+
+        blockedUsers.forEach(function (person) {
+            const row = document.createElement('div');
+            row.className = 'friend-item';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + person.nickname + ' 的资料';
+            fillAvatar(avatar, person, person.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(person);
+            });
+
+            const name = document.createElement('span');
+            name.className = 'friend-name';
+            name.textContent = person.nickname;
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'friend-action';
+            button.dataset.action = 'unblock-user';
+            button.dataset.userId = person.id;
+            button.textContent = '解除拉黑';
+
+            row.append(avatar, name, button);
+            blockedListBox.appendChild(row);
+        });
+    }
+
+    let socialRefreshing = null;   // 正在进行的刷新，避免重复请求
+    let socialLoadedAt = 0;        // 上次刷新完成时间
+
+    async function refreshSocial() {
+        if (!currentUser) {
+            friends = [];
+            pendingRequests = [];
+            pendingOutgoing = {};
+            searchResults = [];
+            unreadByFriend = {};
+            blockedUsers = [];
+            renderFriends();
+            renderRequests();
+            renderSearchResults();
+            renderBlocked();
+            renderBadge();
+            closeChat();
+            return;
+        }
+
+        if (socialRefreshing) return socialRefreshing;
+
+        socialRefreshing = Promise.all([
+            loadFriends(),
+            loadRequests(),
+            loadUnread(),
+            loadBlocked()
+        ]).then(function () {
+            socialLoadedAt = Date.now();
+        }).finally(function () {
+            socialRefreshing = null;
+        });
+
+        return socialRefreshing;
+    }
+
+    function stopRealtime() {
+        if (realtimeChannel) {
+            sb.removeChannel(realtimeChannel);
+            realtimeChannel = null;
+        }
+    }
+
+    let messageReloadTimer = null;
+    let unreadReloadTimer = null;
+    let requestsReloadTimer = null;
+
+    // 实时推送可能短时间连发多条，合并成一次刷新
+    function scheduleMessageReload() {
+        clearTimeout(messageReloadTimer);
+        messageReloadTimer = setTimeout(function () { loadMessages(); }, 250);
+    }
+
+    function scheduleUnreadReload() {
+        clearTimeout(unreadReloadTimer);
+        unreadReloadTimer = setTimeout(function () { loadUnread(); }, 400);
+    }
+
+    function scheduleRequestsReload() {
+        clearTimeout(requestsReloadTimer);
+        requestsReloadTimer = setTimeout(function () { loadRequests(); }, 400);
+    }
+
+    function startRealtime() {
+        stopRealtime();
+        if (!currentUser) return;
+
+        const me = currentUser.id;
+
+        realtimeChannel = sb.channel('social-' + me)
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: 'receiver_id=eq.' + me
+            }, function (payload) {
+                const msg = payload.new;
+                if (activeFriend && msg.sender_id === activeFriend.id) {
+                    scheduleMessageReload();
+                    markChatRead();
+                } else {
+                    scheduleUnreadReload();
+                }
+            })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: 'sender_id=eq.' + me
+            }, function (payload) {
+                if (activeFriend && payload.new.receiver_id === activeFriend.id) {
+                    scheduleMessageReload();
+                }
+            })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'friend_requests',
+                filter: 'to_id=eq.' + me
+            }, function () {
+                scheduleRequestsReload();
+            })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'notifications',
+                filter: 'user_id=eq.' + me
+            }, function () {
+                scheduleNotificationsReload();
+            })
+            .subscribe();
+    }
+
+    function formatMessageTime(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        const now = new Date();
+        const minutes = d.getMinutes() < 10 ? '0' + d.getMinutes() : String(d.getMinutes());
+        const hm = d.getHours() + ':' + minutes;
+        if (d.toDateString() === now.toDateString()) return hm;
+        return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm;
+    }
+
+    function scrollChatToBottom() {
+        if (chatScroll) chatScroll.scrollTop = chatScroll.scrollHeight;
+    }
+
+    async function renderMessages(list) {
+        if (!chatMessagesBox) return;
+
+        let aesKey = null;
+        if (activeFriend) {
+            try {
+                aesKey = await deriveChatKey(activeFriend);
+            } catch (err) {
+                console.warn('派生聊天密钥失败：', err.message);
+            }
+        }
+
+        // 并行解密，避免 200 条消息一条条排队
+        const texts = await Promise.all(list.map(function (m) {
+            if (!m.enc_algo) return Promise.resolve(m.content);
+            if (!aesKey) return Promise.resolve('（这条旧消息无法显示）');
+            return decryptMessage(aesKey, m.content).catch(function () {
+                return '（这条旧消息无法显示）';
+            });
+        }));
+
+        const frag = document.createDocumentFragment();
+        const meId = currentUser ? currentUser.id : null;
+
+        list.forEach(function (m, index) {
+            const row = document.createElement('div');
+            row.className = 'chat-row' + (m.sender_id === meId ? ' chat-row--mine' : '');
+
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-bubble';
+
+            if (m.media_url) {
+                bubble.appendChild(createMediaElement(m.media_url, m.media_type, 'chat-media'));
+            }
+
+            if (texts[index]) {
+                const textEl = document.createElement('span');
+                textEl.className = 'chat-bubble__text';
+                textEl.textContent = texts[index];
+                bubble.appendChild(textEl);
+            }
+
+            const time = document.createElement('span');
+            time.className = 'chat-time';
+            time.textContent = formatMessageTime(m.created_at);
+
+            row.append(bubble, time);
+            frag.appendChild(row);
+        });
+
+        chatMessagesBox.textContent = '';
+        chatMessagesBox.appendChild(frag);
+        if (chatEmpty) chatEmpty.hidden = list.length > 0;
+
+        scrollChatToBottom();
+    }
+
+    // 对方可能换过设备，聊天前拉一次最新公钥，避免继续用旧公钥加密/解密
+    async function refreshFriendKey(friend) {
+        if (!currentUser || !friend) return friend;
+        try {
+            const result = await sb.from('profiles')
+                .select('public_key')
+                .eq('id', friend.id)
+                .maybeSingle();
+
+            if (result.error || !result.data) return friend;
+            const latest = result.data.public_key || null;
+            if (latest !== friend.public_key) {
+                friend.public_key = latest;
+                delete chatKeyCache[friend.id];
+                const inList = friends.find(function (f) { return f.id === friend.id; });
+                if (inList) inList.public_key = latest;
+                if (activeFriend && activeFriend.id === friend.id) activeFriend.public_key = latest;
+            }
+        } catch (err) {
+            console.warn('刷新好友公钥失败：', err);
+        }
+        return friend;
+    }
+
+    async function loadMessages() {
+        if (!currentUser || !activeFriend) return;
+
+        const target = activeFriend;
+        const keyRefresh = refreshFriendKey(target);
+        const me = currentUser.id;
+        const other = target.id;
+        const filter = 'and(sender_id.eq.' + me + ',receiver_id.eq.' + other + ')' +
+            ',and(sender_id.eq.' + other + ',receiver_id.eq.' + me + ')';
+
+        const result = await sb.from('messages')
+            .select('id, sender_id, receiver_id, content, created_at, enc_algo, media_url, media_type')
+            .or(filter)
+            .order('created_at', { ascending: false })
+            .limit(200);
+
+        // 公钥查询和消息查询并行，尽量不额外增加打开聊天的等待
+        await keyRefresh;
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '消息加载失败：' + socialError(result.error));
+            return;
+        }
+
+        setSocialMsg(chatMsg, '');
+        // 取最近 200 条后再正序展示
+        await renderMessages((result.data || []).slice().reverse());
+    }
+
+    async function markChatRead() {
+        if (!currentUser || !activeFriend) return;
+
+        const result = await sb.from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('receiver_id', currentUser.id)
+            .eq('sender_id', activeFriend.id)
+            .is('read_at', null);
+
+        if (result.error) console.warn('标记已读失败：', result.error);
+        scheduleUnreadReload();
+    }
+
+    function openChat(friend) {
+        activeFriend = friend;
+        if (friendsView) friendsView.hidden = true;
+        if (chatView) chatView.hidden = false;
+        if (chatName) chatName.textContent = friend.nickname;
+        fillAvatar(chatAvatar, friend, friend.nickname);
+
+        // 聊天界面的头像也可以点进对方资料页
+        if (chatAvatar) {
+            chatAvatar.classList.add('friend-avatar--link');
+            chatAvatar.dataset.uid = friend.id;
+            chatAvatar.title = '查看 ' + friend.nickname + ' 的资料';
+        }
+        if (chatMessagesBox) chatMessagesBox.textContent = '';
+        if (chatEmpty) chatEmpty.hidden = true;
+        setSocialMsg(chatMsg, '');
+        setChatFile(null);
+        if (!friend.public_key) {
+            setSocialMsg(chatMsg, '对方还没启用加密聊天，暂时发不出消息；让对方打开一次「好友」页即可');
+        }
+        if (chatInput) chatInput.value = '';
+
+        // 先把本会话未读清零，红点立即消失，不等待网络
+        if (unreadByFriend[friend.id]) {
+            unreadByFriend[friend.id] = 0;
+            renderBadge();
+            renderFriends();
+        }
+
+        // 标记已读与拉消息并行，不再串成一条长链
+        markChatRead();
+        loadMessages().then(function () {
+            if (chatInput) chatInput.focus();
+        });
+    }
+
+    function closeChat() {
+        activeFriend = null;
+        if (chatView) chatView.hidden = true;
+        if (friendsView) friendsView.hidden = false;
+    }
+
+    if (chatAvatar) {
+        chatAvatar.addEventListener('click', function () {
+            if (!activeFriend) return;
+            openUserProfile(activeFriend);
+        });
+    }
+
+    async function addFriend(userId, button) {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        button.disabled = true;
+        const result = await sb.rpc('send_friend_request', { p_to: userId });
+
+        if (result.error) {
+            button.disabled = false;
+            setSocialMsg(friendSearchMsg, '发送失败：' + socialError(result.error));
+            return;
+        }
+
+        if (result.data === 'accepted') {
+            setSocialMsg(friendSearchMsg, '对方之前也申请过你，已经直接成为好友', 'success');
+            await refreshSocial();
+            renderSearchResults();
+            return;
+        }
+        if (result.data === 'already_friends') {
+            setSocialMsg(friendSearchMsg, '你们已经是好友了', 'success');
+            await refreshSocial();
+            renderSearchResults();
+            return;
+        }
+
+        pendingOutgoing[userId] = true;
+        setSocialMsg(friendSearchMsg, '好友申请已发送，等对方同意', 'success');
+        renderSearchResults();
+
+        // 通知对方有新好友申请
+        notifyUser(userId, 'friend_request', {});
+    }
+
+    if (friendSearchForm) {
+        friendSearchForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+
+            const query = friendSearchForm.query.value.trim();
+            setSocialMsg(friendSearchMsg, '');
+
+            if (!query) {
+                setSocialMsg(friendSearchMsg, '请输入昵称或完整邮箱');
+                return;
+            }
+
+            const byEmail = query.indexOf('@') >= 0;
+            if (!byEmail && query.length < 2) {
+                setSocialMsg(friendSearchMsg, '昵称至少输入 2 个字符');
+                return;
+            }
+
+            const submit = friendSearchForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+            submit.textContent = '搜索中…';
+
+            let rows = [];
+            if (byEmail) {
+                const result = await sb.rpc('find_user_by_email', { p_email: query });
+                if (result.error) {
+                    submit.disabled = false;
+                    submit.textContent = '搜索';
+                    setSocialMsg(friendSearchMsg, '搜索失败：' + socialError(result.error));
+                    return;
+                }
+                // 邮箱只返回账号 id，昵称和头像在加好友后才可见
+                rows = (result.data || []).map(function (row) {
+                    return {
+                        id: row.id,
+                        nickname: '邮箱匹配的用户',
+                        avatar_url: null,
+                        updated_at: null,
+                        public_key: null,
+                        emailMatch: true
+                    };
+                });
+            } else {
+                const result = await sb.rpc('search_users', { p_query: query });
+
+                if (result.error) {
+                    submit.disabled = false;
+                    submit.textContent = '搜索';
+                    setSocialMsg(friendSearchMsg, '搜索失败：' + socialError(result.error));
+                    return;
+                }
+                rows = result.data || [];
+            }
+
+            submit.disabled = false;
+            submit.textContent = '搜索';
+
+            searchResults = rows.map(function (row) {
+                const person = normalizeProfile(row);
+                person.emailMatch = !!row.emailMatch;
+                return person;
+            });
+            renderSearchResults();
+
+            if (!searchResults.length) {
+                setSocialMsg(friendSearchMsg, '没有找到匹配的用户');
+            } else {
+                setSocialMsg(friendSearchMsg, '找到 ' + searchResults.length + ' 个用户', 'success');
+            }
+        });
+    }
+
+    if (friendResultsBox) {
+        friendResultsBox.addEventListener('click', function (e) {
+            const button = e.target.closest('[data-action="add-friend"]');
+            if (!button) return;
+            addFriend(button.dataset.userId, button);
+        });
+    }
+
+    if (friendRequestsBox) {
+        friendRequestsBox.addEventListener('click', async function (e) {
+            const acceptButton = e.target.closest('[data-action="accept-request"]');
+            const rejectButton = e.target.closest('[data-action="reject-request"]');
+            if (!acceptButton && !rejectButton) return;
+
+            const button = acceptButton || rejectButton;
+            const requestId = button.dataset.requestId;
+            button.disabled = true;
+
+            if (acceptButton) {
+                const result = await sb.rpc('accept_friend_request', { p_request_id: requestId });
+                if (result.error) {
+                    button.disabled = false;
+                    setSocialMsg(friendSearchMsg, '接受失败：' + socialError(result.error));
+                    return;
+                }
+                setSocialMsg(friendSearchMsg, '已接受好友申请', 'success');
+            } else {
+                const result = await sb.from('friend_requests')
+                    .update({ status: 'rejected' })
+                    .eq('id', requestId)
+                    .eq('to_id', currentUser.id);
+                if (result.error) {
+                    button.disabled = false;
+                    setSocialMsg(friendSearchMsg, '操作失败：' + socialError(result.error));
+                    return;
+                }
+                setSocialMsg(friendSearchMsg, '已忽略该申请');
+            }
+
+            await refreshSocial();
+            renderSearchResults();
+        });
+    }
+
+    if (chatBackBtn) {
+        chatBackBtn.addEventListener('click', function () {
+            closeChat();
+            refreshSocial();
+        });
+    }
+
+    if (chatForm) {
+        chatForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                goPage('login');
+                return;
+            }
+            if (!activeFriend) return;
+
+            const text = chatInput.value.trim();
+            const file = chatFile;
+            if (!text && !file) return;
+            if (text.length > 2000) {
+                setSocialMsg(chatMsg, '消息最多 2000 个字');
+                return;
+            }
+
+            let aesKey;
+            try {
+                await refreshFriendKey(activeFriend);
+                aesKey = await deriveChatKey(activeFriend);
+            } catch (err) {
+                setSocialMsg(chatMsg, '发送失败：' + err.message);
+                return;
+            }
+
+            const submit = chatForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+
+            let cipherText;
+            try {
+                cipherText = await encryptMessage(aesKey, text);
+            } catch (err) {
+                submit.disabled = false;
+                setSocialMsg(chatMsg, '加密失败：' + (err.message || '当前浏览器不支持'));
+                return;
+            }
+
+            let media = null;
+            if (file) {
+                setSocialMsg(chatMsg, '媒体上传中…');
+                try {
+                    media = await uploadMediaFile(file, 'chat');
+                } catch (err) {
+                    submit.disabled = false;
+                    setSocialMsg(chatMsg, '媒体上传失败：' + translateError(err.message || ''));
+                    return;
+                }
+            }
+
+            const result = await sb.from('messages').insert({
+                sender_id: currentUser.id,
+                receiver_id: activeFriend.id,
+                content: cipherText,
+                enc_algo: CHAT_ENC_ALGO,
+                media_url: media ? media.url : null,
+                media_type: media ? media.type : null
+            });
+
+            submit.disabled = false;
+
+            if (result.error) {
+                setSocialMsg(chatMsg, '发送失败：' + socialError(result.error));
+                return;
+            }
+
+            // 通知对方收到新私信
+            notifyUser(activeFriend.id, 'message', {});
+
+            chatInput.value = '';
+            setChatFile(null);
+            setSocialMsg(chatMsg, '');
+            await loadMessages();
+        });
+
+        // 回车发送，Shift+回车换行
+        chatInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (typeof chatForm.requestSubmit === 'function') {
+                    chatForm.requestSubmit();
+                } else {
+                    chatForm.querySelector('button[type="submit"]').click();
+                }
+            }
+        });
+    }
+
+    function setChatFile(file) {
+        chatFile = file || null;
+        if (chatAttachName) {
+            chatAttachName.textContent = chatFile ? mediaName(chatFile) : '';
+        }
+        if (chatAttachBar) chatAttachBar.hidden = !chatFile;
+    }
+
+    if (chatAttachBtn && chatFileInput) {
+        chatAttachBtn.addEventListener('click', function () {
+            chatFileInput.click();
+        });
+
+        chatFileInput.addEventListener('change', function () {
+            const file = chatFileInput.files && chatFileInput.files[0];
+            chatFileInput.value = '';
+            if (!file) return;
+
+            if (!mediaKind(file)) {
+                setSocialMsg(chatMsg, '只支持图片或视频');
+                return;
+            }
+            if (file.size > MEDIA_MAX_SIZE) {
+                setSocialMsg(chatMsg, '文件不能超过 25MB');
+                return;
+            }
+
+            setSocialMsg(chatMsg, '');
+            setChatFile(file);
+        });
+    }
+
+    if (chatAttachClear) {
+        chatAttachClear.addEventListener('click', function () {
+            setChatFile(null);
+        });
+    }
+
+    async function blockActiveFriend() {
+        if (!currentUser || !activeFriend) return;
+
+        const name = activeFriend.nickname;
+        if (!window.confirm('确定拉黑「' + name + '」吗？拉黑后双方不能再发消息，好友关系会解除。')) return;
+
+        chatBlockBtn.disabled = true;
+        const result = await sb.rpc('block_user', { p_target: activeFriend.id });
+        chatBlockBtn.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '拉黑失败：' + socialError(result.error));
+            return;
+        }
+
+        chatKeyCache = {};
+        closeChat();
+        await refreshSocial();
+        setSocialMsg(friendSearchMsg, '已拉黑「' + name + '」', 'success');
+    }
+
+    async function reportActiveFriend() {
+        if (!currentUser || !activeFriend) return;
+
+        const name = activeFriend.nickname;
+        const input = window.prompt('举报「' + name + '」，请填写理由（最多 500 字）');
+        if (input === null) return;
+
+        const reason = input.trim();
+        if (!reason) {
+            setSocialMsg(chatMsg, '举报理由不能为空');
+            return;
+        }
+        if (reason.length > 500) {
+            setSocialMsg(chatMsg, '举报理由最多 500 字');
+            return;
+        }
+
+        chatReportBtn.disabled = true;
+        const result = await sb.rpc('report_user', { p_target: activeFriend.id, p_reason: reason });
+        chatReportBtn.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(chatMsg, '举报失败：' + socialError(result.error));
+            return;
+        }
+        setSocialMsg(chatMsg, '举报已提交，我们会尽快处理', 'success');
+    }
+
+    if (chatBlockBtn) {
+        chatBlockBtn.addEventListener('click', blockActiveFriend);
+    }
+
+    if (chatReportBtn) {
+        chatReportBtn.addEventListener('click', reportActiveFriend);
+    }
+
+    if (blockedListBox) {
+        blockedListBox.addEventListener('click', async function (e) {
+            const button = e.target.closest('[data-action="unblock-user"]');
+            if (!button) return;
+
+            button.disabled = true;
+            const result = await sb.rpc('unblock_user', { p_target: button.dataset.userId });
+            if (result.error) {
+                button.disabled = false;
+                setSocialMsg(friendSearchMsg, '解除拉黑失败：' + socialError(result.error));
+                return;
+            }
+
+            await loadBlocked();
+            setSocialMsg(friendSearchMsg, '已解除拉黑，对方需要重新加好友', 'success');
+        });
+    }
+
+    // ===== 社区 =====
+
+    function communityError(err) {
+        const message = (err && err.message) || '';
+        if (/Could not find the table|relation .* does not exist|does not exist|schema cache/i.test(message)) {
+            return '社区还没初始化，请先在 Supabase 执行社区初始化脚本';
+        }
+        return socialError(err);
+    }
+
+    function renderCommunityState() {
+        const loggedIn = !!currentUser;
+        if (communityGuest) communityGuest.hidden = loggedIn;
+        if (communityMain) communityMain.hidden = !loggedIn;
+    }
+
+    function communityMediaLabel(media) {
+        if (!media || !media.length) return '';
+        if (media.length > 1) return '[媒体 ' + media.length + ']';
+        return media[0].type === 'video' ? '[视频]' : '[图片]';
+    }
+
+    // 频道名称
+    function channelLabel(value) {
+        if (value === 'game') return '游戏';
+        if (value === 'chat') return '闲聊';
+        return '综合';
+    }
+
+    // 更新频道/热门标签的选中态与标题
+    function updateCommunityFilterBar() {
+        if (communityTabs) {
+            Array.prototype.forEach.call(communityTabs.children, function (btn) {
+                const active = btn.dataset.hot
+                    ? communityHot
+                    : (!communityHot && btn.dataset.channel === communityChannel);
+                btn.classList.toggle('is-active', active);
+            });
+        }
+        if (communityTitle) {
+            if (communityHot) communityTitle.textContent = '热门榜';
+            else if (communityChannel === 'all') communityTitle.textContent = '全部消息';
+            else communityTitle.textContent = channelLabel(communityChannel) + '频道';
+        }
+    }
+
+    function renderCommunityAuthorFilter() {
+        const active = !!communityAuthorFilter;
+        if (communityAuthorFilterEl) communityAuthorFilterEl.hidden = !active;
+        if (communityAuthorName && communityAuthorFilter) {
+            communityAuthorName.textContent = communityAuthorFilter.nickname;
+        }
+    }
+
+    function setCommunityAuthorFilter(post) {
+        if (!post) return;
+        communityAuthorFilter = { id: post.author_id, nickname: post.author.nickname };
+        renderCommunityAuthorFilter();
+        if (communityFeed) communityFeed.scrollTop = 0;
+        loadCommunity(true);
+    }
+
+    function clearCommunityAuthorFilter() {
+        communityAuthorFilter = null;
+        renderCommunityAuthorFilter();
+        loadCommunity(true);
+    }
+
+    // 按当前选择的排序方式返回副本，不改动原始数组
+    function sortCommunityPosts() {
+        const list = communityBookmarkOnly
+            ? communityPosts.filter(function (post) { return post.bookmarked; })
+            : communityPosts.slice();
+        // 热门榜已按点赞数从高到低排好，不再做客户端排序
+        if (communityHot) return list;
+        const timeOf = function (post) {
+            return new Date(post.created_at).getTime() || 0;
+        };
+        const likesOf = function (post) {
+            return post.likes_count || 0;
+        };
+
+        if (communitySort === 'old') {
+            list.sort(function (a, b) { return timeOf(a) - timeOf(b); });
+        } else if (communitySort === 'hot') {
+            list.sort(function (a, b) {
+                return likesOf(b) - likesOf(a) || timeOf(b) - timeOf(a);
+            });
+        } else if (communitySort === 'cold') {
+            list.sort(function (a, b) {
+                return likesOf(a) - likesOf(b) || timeOf(b) - timeOf(a);
+            });
+        } else {
+            list.sort(function (a, b) { return timeOf(b) - timeOf(a); });
+        }
+        return list;
+    }
+
+    function renderCommunityPosts(preserveScroll) {
+        if (!communityFeed) return;
+        const keep = preserveScroll ? communityFeed.scrollTop : 0;
+        communityFeed.textContent = '';
+
+        const list = sortCommunityPosts();
+
+        if (communityEmpty) {
+            communityEmpty.hidden = list.length > 0;
+            if (communityBookmarkOnly) {
+                communityEmpty.textContent = '还没有收藏的帖子，点开一条消息后点「收藏」';
+            } else if (communitySearch || communityAuthorFilter) {
+                communityEmpty.textContent = '没有找到匹配的帖子';
+            } else if (communityHot) {
+                communityEmpty.textContent = '还没有人点赞，快去给喜欢的帖子点赞吧';
+            } else {
+                communityEmpty.textContent = '还没有人发言，来发第一条吧';
+            }
+        }
+
+        list.forEach(function (post, index) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'community-post community-post--compact';
+            item.dataset.postId = post.id;
+            if (post.id === activeCommunityPostId) item.classList.add('is-active');
+
+            const head = document.createElement('div');
+            head.className = 'community-post__head';
+
+            const avatar = document.createElement('span');
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = post.author.nickname + ' 的资料';
+            fillAvatar(avatar, post.author, post.author.nickname);
+            avatar.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openUserProfile(post.author);
+            });
+
+            const meta = document.createElement('div');
+            meta.className = 'community-post__meta';
+
+            const name = document.createElement('span');
+            name.className = 'community-post__name';
+            name.textContent = post.author.nickname;
+            name.title = '只看 ' + post.author.nickname + ' 的帖子';
+            name.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                setCommunityAuthorFilter(post);
+            });
+
+            meta.append(name);
+
+            if (post.channel) {
+                const channel = document.createElement('span');
+                channel.className = 'community-post__channel';
+                channel.dataset.channel = post.channel;
+                channel.textContent = channelLabel(post.channel);
+                meta.appendChild(channel);
+            }
+
+            head.append(avatar, meta);
+
+            // 收藏星标 + 点赞数
+            const marks = document.createElement('span');
+            marks.className = 'community-post__marks';
+
+            if (post.bookmarked) {
+                const star = document.createElement('span');
+                star.className = 'community-post__star';
+                star.textContent = '★';
+                star.title = '已收藏';
+                marks.appendChild(star);
+            }
+
+            const likes = document.createElement('span');
+            likes.className = 'community-post__likes';
+            likes.textContent = '♥ ' + (post.likes_count || 0);
+            marks.appendChild(likes);
+
+            head.append(marks);
+
+            // 热门榜显示名次
+            if (communityHot) {
+                const rank = document.createElement('span');
+                rank.className = 'community-post__rank';
+                if (index < 3) rank.classList.add('community-post__rank--top');
+                rank.textContent = index + 1;
+                head.insertBefore(rank, head.firstChild);
+            }
+
+            // 列表里只显示一行预览，超出用省略号
+            const preview = document.createElement('p');
+            preview.className = 'community-post__preview';
+            const mediaLabel = communityMediaLabel(post.media);
+            preview.textContent = (mediaLabel ? mediaLabel + ' ' : '') + (post.content || '');
+
+            item.append(head, preview);
+            item.addEventListener('click', function () {
+                openCommunityPost(post);
+            });
+
+            communityFeed.appendChild(item);
+        });
+
+        if (preserveScroll) communityFeed.scrollTop = keep;
+        renderCommunityMore();
+    }
+
+    // 「加载更多」按钮的显示与加载中状态
+    function renderCommunityMore() {
+        if (!communityMoreBtn) return;
+        communityMoreBtn.hidden = !communityHasMore;
+        communityMoreBtn.disabled = communityLoadingMore;
+        communityMoreBtn.textContent = communityLoadingMore ? '加载中…' : '加载更多';
+    }
+
+    function clearCommunityDetail() {
+        activeCommunityPostId = null;
+        if (communityDetailBody) {
+            communityDetailBody.textContent = '';
+            communityDetailBody.hidden = true;
+        }
+        if (communityDetailEmpty) communityDetailEmpty.hidden = false;
+    }
+
+    function createMediaThumb(item) {
+        if (item.type === 'video') {
+            const video = document.createElement('video');
+            video.className = 'community-media__thumb';
+            video.src = item.url;
+            // 九宫格里不预加载视频，点开查看器才真正拉流
+            video.preload = 'none';
+            video.muted = true;
+            video.playsInline = true;
+            return video;
+        }
+
+        const img = document.createElement('img');
+        img.className = 'community-media__thumb';
+        img.src = item.url;
+        img.alt = '图片';
+        img.loading = 'lazy';
+        return img;
+    }
+
+    // 单个媒体直接大图，多个媒体用九宫格缩小显示
+    function renderCommunityMedia(post, container) {
+        const media = post.media || [];
+        if (!media.length || !container) return;
+
+        if (media.length === 1) {
+            container.appendChild(
+                createMediaElement(media[0].url, media[0].type, 'community-media')
+            );
+            return;
+        }
+
+        const grid = document.createElement('div');
+        grid.className = 'community-media-grid';
+
+        media.forEach(function (item, index) {
+            const cell = document.createElement('button');
+            cell.type = 'button';
+            cell.className = 'community-media__cell';
+            cell.addEventListener('click', function () {
+                openMediaViewer(media, index);
+            });
+
+            cell.appendChild(createMediaThumb(item));
+
+            if (item.type === 'video') {
+                const play = document.createElement('span');
+                play.className = 'community-media__play';
+                play.textContent = '▶';
+                cell.appendChild(play);
+            }
+
+            grid.appendChild(cell);
+        });
+
+        container.appendChild(grid);
+    }
+
+    // 点击缩略图后的全屏查看层，支持左右切换
+    function openMediaViewer(media, startIndex) {
+        if (!media || !media.length) return;
+
+        let index = startIndex || 0;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'media-viewer';
+
+        const stage = document.createElement('div');
+        stage.className = 'media-viewer__stage';
+
+        const counter = document.createElement('span');
+        counter.className = 'media-viewer__count';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'media-viewer__close';
+        closeBtn.textContent = '×';
+        closeBtn.setAttribute('aria-label', '关闭');
+
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'media-viewer__nav media-viewer__nav--prev';
+        prevBtn.textContent = '‹';
+        prevBtn.setAttribute('aria-label', '上一个');
+
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'media-viewer__nav media-viewer__nav--next';
+        nextBtn.textContent = '›';
+        nextBtn.setAttribute('aria-label', '下一个');
+
+        function render() {
+            stage.textContent = '';
+            const item = media[index];
+            if (!item) return;
+            stage.appendChild(createMediaElement(item.url, item.type, 'media-viewer__media'));
+            counter.textContent = media.length > 1 ? (index + 1) + ' / ' + media.length : '';
+        }
+
+        function close() {
+            overlay.remove();
+            document.removeEventListener('keydown', onKey);
+        }
+
+        function step(delta) {
+            index = (index + delta + media.length) % media.length;
+            render();
+        }
+
+        function onKey(e) {
+            if (e.key === 'Escape') {
+                close();
+            } else if (e.key === 'ArrowLeft') {
+                step(-1);
+            } else if (e.key === 'ArrowRight') {
+                step(1);
+            }
+        }
+
+        closeBtn.addEventListener('click', close);
+        prevBtn.addEventListener('click', function () { step(-1); });
+        nextBtn.addEventListener('click', function () { step(1); });
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) close();
+        });
+
+        const multiple = media.length > 1;
+        prevBtn.hidden = !multiple;
+        nextBtn.hidden = !multiple;
+
+        render();
+        overlay.append(counter, prevBtn, nextBtn, closeBtn, stage);
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', onKey);
+    }
+
+    function openCommunityPost(post) {
+        activeCommunityPostId = post.id;
+
+        // 刷新左侧选中态
+        if (communityFeed) {
+            Array.prototype.forEach.call(communityFeed.children, function (node) {
+                node.classList.toggle('is-active', node.dataset.postId === post.id);
+            });
+        }
+
+        if (!communityDetailBody) return;
+        if (communityDetailEmpty) communityDetailEmpty.hidden = true;
+        communityDetailBody.hidden = false;
+        communityDetailBody.textContent = '';
+
+        renderPostDetail(post, communityDetailBody);
+
+        // 窄屏是上下布局，点开消息后滚到详情
+        if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) {
+            communityDetailBody.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    // 把一条帖子渲染进任意容器（社区右栏 / 用户资料页右栏共用）
+    function renderPostDetail(post, container) {
+        if (!container) return;
+        container.textContent = '';
+
+        const head = document.createElement('div');
+        head.className = 'community-detail__head';
+
+        const avatar = document.createElement('span');
+        avatar.className = 'chat-avatar friend-avatar--link';
+        avatar.title = post.author.nickname + ' 的资料';
+        fillAvatar(avatar, post.author, post.author.nickname);
+        avatar.addEventListener('click', function () {
+            openUserProfile(post.author);
+        });
+
+        const meta = document.createElement('div');
+        meta.className = 'community-detail__meta';
+
+        const name = document.createElement('span');
+        name.className = 'community-detail__name';
+        name.textContent = post.author.nickname;
+
+        const time = document.createElement('span');
+        time.className = 'community-detail__time';
+        time.textContent = formatMessageTime(post.created_at);
+
+        const channel = document.createElement('span');
+        channel.className = 'community-post__channel';
+        channel.dataset.channel = post.channel || 'general';
+        channel.textContent = channelLabel(post.channel);
+
+        meta.append(name, time, channel);
+        head.append(avatar, meta);
+
+        const text = document.createElement('p');
+        text.className = 'community-detail__text';
+        text.textContent = post.content;
+
+        const actions = document.createElement('div');
+        actions.className = 'community-post__actions';
+
+        // 点赞可以再点一次取消，热度就是点赞数
+        const likeBtn = document.createElement('button');
+        likeBtn.type = 'button';
+        likeBtn.className = 'friend-action community-like';
+        likeBtn.textContent = post.liked
+            ? '已点赞 ' + (post.likes_count || 0)
+            : '点赞 ' + (post.likes_count || 0);
+        if (post.liked) likeBtn.classList.add('is-active');
+        likeBtn.addEventListener('click', function () {
+            toggleCommunityLike(post, likeBtn);
+        });
+        actions.appendChild(likeBtn);
+
+        // 收藏只有自己能看到
+        const bookmarkBtn = document.createElement('button');
+        bookmarkBtn.type = 'button';
+        bookmarkBtn.className = 'friend-action community-bookmark';
+        bookmarkBtn.textContent = post.bookmarked ? '已收藏' : '收藏';
+        if (post.bookmarked) bookmarkBtn.classList.add('is-active');
+        bookmarkBtn.addEventListener('click', function () {
+            toggleCommunityBookmark(post, bookmarkBtn);
+        });
+        actions.appendChild(bookmarkBtn);
+
+        if (currentUser && post.author_id === currentUser.id) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'friend-action community-delete';
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', function () {
+                deleteCommunityPost(post);
+            });
+            actions.appendChild(deleteBtn);
+        }
+
+        const comments = document.createElement('div');
+        comments.className = 'community-comments';
+
+        const commentsTitle = document.createElement('h3');
+        commentsTitle.className = 'section-title';
+        commentsTitle.textContent = '评论';
+
+        const commentList = document.createElement('div');
+        commentList.className = 'community-comments__list';
+
+        const commentForm = document.createElement('form');
+        commentForm.className = 'community-comment-form';
+        commentForm.noValidate = true;
+
+        const commentInput = document.createElement('input');
+        commentInput.type = 'text';
+        commentInput.className = 'field__input community-comment-input';
+        commentInput.maxLength = 300;
+        commentInput.placeholder = '写下你的评论…';
+        commentInput.autocomplete = 'off';
+
+        const commentSend = document.createElement('button');
+        commentSend.type = 'submit';
+        commentSend.className = 'code-send';
+        commentSend.textContent = '发送';
+
+        commentForm.append(commentInput, commentSend);
+        comments.append(commentsTitle, commentList, commentForm);
+
+        commentForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            sendCommunityComment(post, commentInput, commentSend, commentList);
+        });
+
+        container.append(head, text);
+        renderCommunityMedia(post, container);
+        container.append(actions, comments);
+
+        loadCommunityComments(post, commentList);
+    }
+
+    // 点赞 / 收藏变化后刷新左侧列表（保留滚动位置），同步星标和点赞数
+    function refreshCommunityList() {
+        if (!communityFeed) return;
+        const keep = communityFeed.scrollTop;
+        renderCommunityPosts();
+        communityFeed.scrollTop = keep;
+    }
+
+    async function toggleCommunityLike(post, button) {
+        if (!currentUser) return;
+
+        button.disabled = true;
+
+        const result = post.liked
+            ? await sb.from('community_likes').delete()
+                .eq('post_id', post.id)
+                .eq('user_id', currentUser.id)
+            : await sb.from('community_likes').insert({
+                post_id: post.id,
+                user_id: currentUser.id
+            });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        post.liked = !post.liked;
+        post.likes_count = Math.max(0, (post.likes_count || 0) + (post.liked ? 1 : -1));
+        button.textContent = (post.liked ? '已点赞 ' : '点赞 ') + post.likes_count;
+        button.classList.toggle('is-active', post.liked);
+        setSocialMsg(communityMsg, '');
+
+        // 点赞动态时通知作者（取消点赞不通知）
+        if (post.liked) {
+            notifyUser(post.author_id, 'like', { post_id: post.id, content: post.content });
+        }
+
+        refreshCommunityList();
+    }
+
+    async function toggleCommunityBookmark(post, button) {
+        if (!currentUser) return;
+
+        button.disabled = true;
+
+        const result = post.bookmarked
+            ? await sb.from('community_bookmarks').delete()
+                .eq('post_id', post.id)
+                .eq('user_id', currentUser.id)
+            : await sb.from('community_bookmarks').insert({
+                post_id: post.id,
+                user_id: currentUser.id
+            });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        post.bookmarked = !post.bookmarked;
+        button.textContent = post.bookmarked ? '已收藏' : '收藏';
+        button.classList.toggle('is-active', post.bookmarked);
+        setSocialMsg(communityMsg, post.bookmarked ? '已收藏' : '已取消收藏', 'success');
+
+        // 刷新左侧：收藏星标、点赞数，以及「只看收藏」下的移除
+        refreshCommunityList();
+    }
+
+    // 上海时区当天 0 点对应的 UTC 时间
+    function communityDayStartIso() {
+        const SH_OFFSET = 8 * 3600 * 1000;
+        const nowMs = Date.now();
+        const dayStart = Math.floor((nowMs + SH_OFFSET) / 86400000) * 86400000;
+        return new Date(dayStart - SH_OFFSET).toISOString();
+    }
+
+    // 今天已经发了几条；查询失败返回 null（交给数据库约束兜底）
+    async function countTodayCommunityPosts() {
+        if (!currentUser) return 0;
+        const result = await sb
+            .from('community_posts')
+            .select('id', { count: 'exact', head: true })
+            .eq('author_id', currentUser.id)
+            .gte('created_at', communityDayStartIso());
+
+        if (result.error) return null;
+        return result.count || 0;
+    }
+
+    async function loadCommunityComments(post, list) {
+        if (!list) return;
+
+        // 60 秒内重复点开同一条帖子直接用缓存，不再请求
+        const cached = commentCache[post.id];
+        if (cached && Date.now() - cached.at < COMMENT_CACHE_TTL) {
+            renderCommunityComments(list, cached.rows, cached.authors, post);
+            return;
+        }
+
+        list.textContent = '加载中…';
+
+        const result = await sb
+            .from('community_comments')
+            .select('id, content, created_at, author_id')
+            .eq('post_id', post.id)
+            .order('created_at', { ascending: true })
+            .limit(300);
+
+        if (result.error) {
+            list.textContent = communityError(result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        const authorIds = [];
+        rows.forEach(function (row) {
+            if (row.author_id && authorIds.indexOf(row.author_id) < 0) authorIds.push(row.author_id);
+        });
+
+        let authors = {};
+        if (authorIds.length) {
+            (await fetchProfiles(authorIds)).forEach(function (person) {
+                authors[person.id] = normalizeProfile(person);
+            });
+        }
+
+        list.textContent = '';
+
+        commentCache[post.id] = { at: Date.now(), rows: rows, authors: authors };
+        renderCommunityComments(list, rows, authors, post);
+    }
+
+    // 评论列表渲染：首次加载和缓存命中共用
+    function renderCommunityComments(list, rows, authors, post) {
+        list.textContent = '';
+
+        if (!rows.length) {
+            const empty = document.createElement('p');
+            empty.className = 'community-comments__empty';
+            empty.textContent = '还没有评论，来说两句吧';
+            list.appendChild(empty);
+            return;
+        }
+
+        rows.forEach(function (row) {
+            const author = authors[row.author_id] || { nickname: '玩家' };
+
+            const item = document.createElement('div');
+            item.className = 'community-comment';
+
+            const head = document.createElement('div');
+            head.className = 'community-comment__head';
+
+            const name = document.createElement('span');
+            name.className = 'community-comment__name';
+            name.textContent = author.nickname;
+
+            const time = document.createElement('span');
+            time.className = 'community-comment__time';
+            time.textContent = formatMessageTime(row.created_at);
+
+            head.append(name, time);
+
+            // 自己发的评论可以删除
+            if (currentUser && row.author_id === currentUser.id) {
+                const del = document.createElement('button');
+                del.className = 'community-comment__delete';
+                del.type = 'button';
+                del.textContent = '删除';
+                del.addEventListener('click', function () {
+                    deleteCommunityComment(post, row, list);
+                });
+                head.appendChild(del);
+            }
+
+            const text = document.createElement('p');
+            text.className = 'community-comment__text';
+            text.textContent = row.content;
+
+            item.append(head, text);
+            list.appendChild(item);
+        });
+    }
+
+    async function sendCommunityComment(post, input, button, list) {
+        if (!currentUser || !input) return;
+
+        const text = (input.value || '').trim();
+        if (!text) return;
+        if (text.length > 300) {
+            setSocialMsg(communityMsg, '一条评论最多 300 个字');
+            return;
+        }
+
+        button.disabled = true;
+
+        const result = await sb.from('community_comments').insert({
+            post_id: post.id,
+            author_id: currentUser.id,
+            content: text
+        });
+
+        button.disabled = false;
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        // 评论动态时通知作者
+        notifyUser(post.author_id, 'comment', { post_id: post.id, content: text });
+
+        input.value = '';
+        setSocialMsg(communityMsg, '');
+        delete commentCache[post.id];
+        await loadCommunityComments(post, list);
+    }
+
+    async function deleteCommunityComment(post, row, list) {
+        if (!currentUser || !post || !row) return;
+        if (row.author_id !== currentUser.id) return;
+        if (!window.confirm('删除这条评论？')) return;
+
+        const result = await sb
+            .from('community_comments')
+            .delete()
+            .eq('id', row.id)
+            .eq('author_id', currentUser.id);
+
+        if (result.error) {
+            setSocialMsg(communityMsg, '删除评论失败：' + socialError(result.error));
+            return;
+        }
+
+        delete commentCache[post.id];
+        await loadCommunityComments(post, list);
+    }
+
+    async function deleteCommunityPost(post) {
+        if (!currentUser || !post) return;
+        if (!window.confirm('删除这条消息？下面的评论也会一起删除。')) return;
+
+        const result = await sb
+            .from('community_posts')
+            .delete()
+            .eq('id', post.id);
+
+        if (result.error) {
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        if (activeCommunityPostId === post.id) clearCommunityDetail();
+
+        // 在公开资料页里删了自己的动态：清空右侧并刷新左侧列表
+        if (activeUserPostId === post.id) {
+            activeUserPostId = null;
+            if (userDetailBody) {
+                userDetailBody.textContent = '';
+                userDetailBody.hidden = true;
+            }
+            if (userDetailEmpty) userDetailEmpty.hidden = false;
+        }
+
+        setSocialMsg(communityMsg, '已删除', 'success');
+        await loadCommunity(true);
+        if (viewedUser && location.hash === '#user') loadUserPosts();
+    }
+
+    async function loadCommunity(force, append) {
+        if (!append) {
+            renderCommunityState();
+            updateCommunityFilterBar();
+            renderCommunityAuthorFilter();
+        }
+
+        if (!currentUser) {
+            communityPosts = [];
+            communityHasMore = false;
+            renderCommunityPosts();
+            return;
+        }
+        if (!force && !append && communityLoadedAt && Date.now() - communityLoadedAt < 10000) return;
+        if (append && (communityLoadingMore || !communityHasMore)) return;
+
+        if (append) {
+            communityLoadingMore = true;
+            renderCommunityMore();
+        }
+
+        const reqId = ++communityRequestId;
+        const offset = append ? communityPosts.length : 0;
+
+        let postQuery = sb
+            .from('community_posts')
+            .select('id, content, created_at, author_id, media, channel, likes_count');
+
+        if (communityHot) {
+            postQuery = postQuery.gt('likes_count', 0);
+        } else if (communityChannel !== 'all') {
+            postQuery = postQuery.eq('channel', communityChannel);
+        }
+        if (communitySearch) {
+            postQuery = postQuery.ilike('content', '%' + communitySearch + '%');
+        }
+        if (communityAuthorFilter) {
+            postQuery = postQuery.eq('author_id', communityAuthorFilter.id);
+        }
+
+        if (communityHot) {
+            postQuery = postQuery
+                .order('likes_count', { ascending: false })
+                .order('created_at', { ascending: false });
+        } else {
+            postQuery = postQuery.order('created_at', { ascending: false });
+        }
+
+        const result = await postQuery.range(offset, offset + COMMUNITY_PAGE_SIZE - 1);
+
+        if (reqId !== communityRequestId) {
+            communityLoadingMore = false;
+            return;
+        }
+
+        if (result.error) {
+            communityLoadingMore = false;
+            if (!append) {
+                communityPosts = [];
+                communityHasMore = false;
+                renderCommunityPosts();
+            } else {
+                renderCommunityMore();
+            }
+            setSocialMsg(communityMsg, communityError(result.error));
+            return;
+        }
+
+        const rows = result.data || [];
+        const authorIds = [];
+        const postIds = [];
+        rows.forEach(function (row) {
+            postIds.push(row.id);
+            if (row.author_id && authorIds.indexOf(row.author_id) < 0) authorIds.push(row.author_id);
+        });
+
+        const peoplePromise = authorIds.length
+            ? fetchProfiles(authorIds).then(function (people) {
+                return { data: people, error: null };
+            })
+            : Promise.resolve({ data: [], error: null });
+
+        // 点赞数（热度）、我的点赞、我的收藏，只取 post_id 字段
+        const likesPromise = postIds.length
+            ? sb.from('community_likes').select('post_id').in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const myLikesPromise = postIds.length
+            ? sb.from('community_likes').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const bookmarksPromise = postIds.length
+            ? sb.from('community_bookmarks').select('post_id').eq('user_id', currentUser.id).in('post_id', postIds)
+            : Promise.resolve({ data: [], error: null });
+
+        const results = await Promise.all([peoplePromise, likesPromise, myLikesPromise, bookmarksPromise]);
+
+        if (reqId !== communityRequestId) {
+            communityLoadingMore = false;
+            return;
+        }
+
+        let authors = {};
+        if (!results[0].error) {
+            (results[0].data || []).forEach(function (person) {
+                authors[person.id] = normalizeProfile(person);
+            });
+        }
+
+        // 热度 = 点赞数
+        let likeCounts = {};
+        if (!results[1].error) {
+            (results[1].data || []).forEach(function (like) {
+                likeCounts[like.post_id] = (likeCounts[like.post_id] || 0) + 1;
+            });
+        }
+
+        let likedIds = {};
+        if (!results[2].error) {
+            (results[2].data || []).forEach(function (like) {
+                likedIds[like.post_id] = true;
+            });
+        }
+
+        let bookmarkedIds = {};
+        if (!results[3].error) {
+            (results[3].data || []).forEach(function (mark) {
+                bookmarkedIds[mark.post_id] = true;
+            });
+        }
+
+        const mapped = rows.map(function (row) {
+            const media = Array.isArray(row.media) ? row.media : [];
+            return {
+                id: row.id,
+                author_id: row.author_id,
+                content: row.content,
+                created_at: row.created_at,
+                channel: row.channel || 'general',
+                media: media
+                    .filter(function (item) { return item && item.url; })
+                    .slice(0, 9)
+                    .map(function (item) {
+                        return {
+                            url: item.url,
+                            type: item.type === 'video' ? 'video' : 'image'
+                        };
+                    }),
+                likes_count: (typeof row.likes_count === 'number' ? row.likes_count : (likeCounts[row.id] || 0)),
+                liked: !!likedIds[row.id],
+                bookmarked: !!bookmarkedIds[row.id],
+                author: authors[row.author_id] || {
+                    id: row.author_id,
+                    nickname: '玩家',
+                    avatar_url: null,
+                    updated_at: null,
+                    public_key: null
+                }
+            };
+        });
+
+        communityPosts = append ? communityPosts.concat(mapped) : mapped;
+        communityHasMore = rows.length === COMMUNITY_PAGE_SIZE;
+        communityLoadingMore = false;
+        communityLoadedAt = Date.now();
+        renderCommunityPosts(append);
+
+        // 当前选中的消息如果已不存在，清空右侧
+        if (activeCommunityPostId) {
+            const stillThere = communityPosts.some(function (item) {
+                return item.id === activeCommunityPostId;
+            });
+            if (!stillThere) clearCommunityDetail();
+        }
+
+        setSocialMsg(communityMsg, '');
+    }
+
+    function updateCommunityCount() {
+        if (!communityCount || !communityInput) return;
+        communityCount.textContent = communityInput.value.length + '/500';
+    }
+
+    if (communityInput) {
+        communityInput.addEventListener('input', updateCommunityCount);
+    }
+
+    function mediaKind(file) {
+        if (!file) return null;
+        if (file.type.indexOf('image/') === 0) return 'image';
+        if (file.type.indexOf('video/') === 0) return 'video';
+        return null;
+    }
+
+    function mediaName(file) {
+        return file.name || (mediaKind(file) === 'video' ? '视频' : '图片');
+    }
+
+    // 上传前把图片最长边压到 maxEdge、转成 WebP；失败或压缩后更大时用原图
+    function compressImage(file, maxEdge) {
+        if (!file || file.type.indexOf('image/') !== 0) return Promise.resolve(file);
+        // 动图不处理，避免 GIF 变成静态图
+        if (file.type === 'image/gif') return Promise.resolve(file);
+
+        return new Promise(function (resolve) {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+
+            img.onload = function () {
+                URL.revokeObjectURL(url);
+
+                const limit = maxEdge || 1600;
+                const longest = Math.max(img.naturalWidth, img.naturalHeight) || 1;
+                const scale = Math.min(1, limit / longest);
+
+                // 尺寸和体积都不大就不重新编码
+                if (scale >= 1 && file.size <= 600 * 1024) {
+                    resolve(file);
+                    return;
+                }
+
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+                    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                    canvas.toBlob(function (blob) {
+                        if (!blob || blob.size >= file.size) {
+                            resolve(file);
+                            return;
+                        }
+                        const name = (file.name || 'image').replace(/\.\w+$/, '') + '.webp';
+                        resolve(new File([blob], name, {
+                            type: 'image/webp',
+                            lastModified: Date.now()
+                        }));
+                    }, 'image/webp', 0.82);
+                } catch (err) {
+                    resolve(file);
+                }
+            };
+
+            img.onerror = function () {
+                URL.revokeObjectURL(url);
+                resolve(file);
+            };
+
+            img.src = url;
+        });
+    }
+
+    // 上传到公开的 media 桶，返回可直接访问的地址和类型
+    async function uploadMediaFile(file, prefix) {
+        if (!currentUser) throw new Error('请先登录');
+
+        const kind = mediaKind(file);
+        if (!kind) throw new Error('只支持图片或视频');
+        if (file.size > MEDIA_MAX_SIZE) throw new Error('文件不能超过 25MB');
+
+        // 图片先压缩，视频只做大小限制
+        const uploadFile = kind === 'image' ? await compressImage(file, 1600) : file;
+
+        const rawExt = (uploadFile.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const ext = rawExt || (kind === 'video' ? 'mp4' : 'jpg');
+        const path = currentUser.id + '/' + prefix + '-' + Date.now() + '-' +
+            Math.random().toString(36).slice(2, 8) + '.' + ext;
+
+        const upload = await sb.storage.from(MEDIA_BUCKET).upload(path, uploadFile, {
+            upsert: false,
+            contentType: uploadFile.type,
+            cacheControl: '31536000'
+        });
+
+        if (upload.error) throw upload.error;
+
+        return {
+            url: sb.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
+            type: kind
+        };
+    }
+
+    function createMediaElement(url, type, className) {
+        const el = document.createElement(type === 'video' ? 'video' : 'img');
+        el.className = className;
+        el.src = url;
+        if (type === 'video') {
+            el.controls = true;
+            el.preload = 'metadata';
+            el.playsInline = true;
+        } else {
+            el.alt = '图片';
+            el.loading = 'lazy';
+            el.decoding = 'async';
+        }
+        return el;
+    }
+
+    function renderCommunityAttach() {
+        if (communityAttachList) {
+            communityAttachList.textContent = '';
+            communityFiles.forEach(function (file, index) {
+                const chip = document.createElement('span');
+                chip.className = 'media-chip';
+
+                const name = document.createElement('span');
+                name.className = 'media-chip__name';
+                name.textContent = mediaName(file);
+
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'media-chip__remove';
+                remove.textContent = '×';
+                remove.setAttribute('aria-label', '移除');
+                remove.addEventListener('click', function () {
+                    communityFiles.splice(index, 1);
+                    renderCommunityAttach();
+                });
+
+                chip.append(name, remove);
+                communityAttachList.appendChild(chip);
+            });
+        }
+
+        if (communityAttachName) {
+            communityAttachName.textContent = communityFiles.length
+                ? '已选 ' + communityFiles.length + ' / 9'
+                : '最多选 9 个';
+        }
+    }
+
+    function setCommunityFiles(files) {
+        communityFiles = files.slice(0, 9);
+        renderCommunityAttach();
+    }
+
+    if (communityAttachBtn && communityFileInput) {
+        communityAttachBtn.addEventListener('click', function () {
+            communityFileInput.click();
+        });
+
+        communityFileInput.addEventListener('change', function () {
+            const picked = Array.prototype.slice.call(communityFileInput.files || []);
+            communityFileInput.value = '';
+            if (!picked.length) return;
+
+            const accepted = [];
+            for (let i = 0; i < picked.length; i += 1) {
+                const file = picked[i];
+                if (!mediaKind(file)) {
+                    setSocialMsg(communityMsg, '只支持图片或视频');
+                    return;
+                }
+                if (file.size > MEDIA_MAX_SIZE) {
+                    setSocialMsg(communityMsg, '单个文件不能超过 25MB');
+                    return;
+                }
+                accepted.push(file);
+            }
+
+            const room = 9 - communityFiles.length;
+            if (accepted.length > room) {
+                setSocialMsg(communityMsg, '最多选 9 个，多出的没有加入');
+            } else {
+                setSocialMsg(communityMsg, '');
+            }
+
+            setCommunityFiles(communityFiles.concat(accepted.slice(0, room)));
+        });
+    }
+
+    if (communitySortSelect) {
+        communitySortSelect.addEventListener('change', function () {
+            communitySort = communitySortSelect.value;
+            renderCommunityPosts();
+        });
+    }
+
+    if (communityBookmarkFilter) {
+        communityBookmarkFilter.addEventListener('click', function () {
+            communityBookmarkOnly = !communityBookmarkOnly;
+            communityBookmarkFilter.classList.toggle('is-active', communityBookmarkOnly);
+            communityBookmarkFilter.setAttribute('aria-pressed', communityBookmarkOnly ? 'true' : 'false');
+            if (communityFeed) communityFeed.scrollTop = 0;
+            renderCommunityPosts();
+        });
+    }
+
+    if (communityMoreBtn) {
+        communityMoreBtn.addEventListener('click', function () {
+            loadCommunity(false, true);
+        });
+    }
+
+    // 频道标签 / 热门榜切换
+    if (communityTabs) {
+        Array.prototype.forEach.call(communityTabs.children, function (btn) {
+            btn.addEventListener('click', function () {
+                if (btn.dataset.hot) {
+                    communityHot = true;
+                    communityChannel = 'all';
+                } else {
+                    communityHot = false;
+                    communityChannel = btn.dataset.channel || 'all';
+                }
+                updateCommunityFilterBar();
+                if (communityFeed) communityFeed.scrollTop = 0;
+                loadCommunity(true);
+            });
+        });
+    }
+
+    // 关键词搜索（300ms 防抖）
+    let communitySearchTimer = null;
+    if (communitySearchInput) {
+        communitySearchInput.addEventListener('input', function () {
+            clearTimeout(communitySearchTimer);
+            communitySearchTimer = setTimeout(function () {
+                communitySearch = (communitySearchInput.value || '').trim();
+                if (communityFeed) communityFeed.scrollTop = 0;
+                loadCommunity(true);
+            }, 300);
+        });
+    }
+
+    if (communityAuthorClear) {
+        communityAuthorClear.addEventListener('click', clearCommunityAuthorFilter);
+    }
+
+    // 列表滚到接近底部时自动加载下一页
+    if (communityFeed) {
+        communityFeed.addEventListener('scroll', function () {
+            if (!communityHasMore || communityLoadingMore) return;
+            if (communityFeed.scrollTop + communityFeed.clientHeight >= communityFeed.scrollHeight - 160) {
+                loadCommunity(false, true);
+            }
+        });
+    }
+
+    if (communityForm) {
+        communityForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            if (!currentUser) {
+                setSocialMsg(communityMsg, '登录后才能发布消息');
+                return;
+            }
+
+            const text = (communityInput.value || '').trim();
+            if (!text && !communityFiles.length) {
+                setSocialMsg(communityMsg, '写点什么，或选几张图片/视频');
+                return;
+            }
+            if (text.length > 500) {
+                setSocialMsg(communityMsg, '一条消息最多 500 个字');
+                return;
+            }
+
+            const submit = communityForm.querySelector('button[type="submit"]');
+            submit.disabled = true;
+            submit.textContent = '发布中…';
+            setSocialMsg(communityMsg, '');
+
+            // 每天最多 10 条，前端先查一次给出友好提示，数据库策略再兜底
+            const todayCount = await countTodayCommunityPosts();
+            if (todayCount !== null && todayCount >= 10) {
+                submit.disabled = false;
+                submit.textContent = '发布';
+                setSocialMsg(communityMsg, '每人每天最多发 10 条，明天再来吧');
+                return;
+            }
+
+            let media = [];
+            if (communityFiles.length) {
+                submit.textContent = '上传中…';
+                try {
+                    for (let i = 0; i < communityFiles.length; i += 1) {
+                        media.push(await uploadMediaFile(communityFiles[i], 'community'));
+                    }
+                } catch (err) {
+                    submit.disabled = false;
+                    submit.textContent = '发布';
+                    setSocialMsg(communityMsg, '媒体上传失败：' + translateError(err.message || ''));
+                    return;
+                }
+                submit.textContent = '发布中…';
+            }
+
+            const channel = communityChannelInput ? communityChannelInput.value : 'general';
+
+            const result = await sb.from('community_posts').insert({
+                author_id: currentUser.id,
+                content: text,
+                media: media,
+                channel: channel
+            });
+
+            submit.disabled = false;
+            submit.textContent = '发布';
+
+            if (result.error) {
+                setSocialMsg(communityMsg, communityError(result.error));
+                return;
+            }
+
+            communityInput.value = '';
+            updateCommunityCount();
+            setCommunityFiles([]);
+            setSocialMsg(communityMsg, '已发布', 'success');
+            await loadCommunity(true);
+        });
+    }
+
+    // 设置页：账号信息 + （桌面端）下载目录
+    function renderSettingsPage() {
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+        if (settingsNickname) settingsNickname.textContent = nicknameOf();
+        if (settingsEmail) settingsEmail.textContent = currentUser.email || '';
+
+        if (settingsDownloadCard) settingsDownloadCard.hidden = !isDesktop;
+
+        if (isDesktop && window.desktopAPI && typeof window.desktopAPI.getDownloadDir === 'function') {
+            window.desktopAPI.getDownloadDir().then(function (dir) {
+                if (dir && settingsDownloadDir) settingsDownloadDir.textContent = dir;
+            }).catch(function () {
+                // 读取失败就保持默认文案
+            });
+        }
+    }
+
+    // 字节数转成可读文本（KB / MB / GB）
+    function fmtBytes(n) {
+        if (!n && n !== 0) return '';
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(1) + ' MB';
+        return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
+    // 下载进度条：show 控制显隐，received/total 计算百分比
+    function showDownloadProgress(show, received, total) {
+        if (!downloadProgress) return;
+        if (!show) {
+            downloadProgress.hidden = true;
+            return;
+        }
+        downloadProgress.hidden = false;
+        let percent = 0;
+        let text = '准备下载…';
+        if (total && total > 0) {
+            percent = Math.min(100, Math.round((received / total) * 100));
+            text = fmtBytes(received) + ' / ' + fmtBytes(total) + '（' + percent + '%）';
+        } else if (received) {
+            text = fmtBytes(received);
+        }
+        if (downloadProgressFill) downloadProgressFill.style.width = percent + '%';
+        if (downloadProgressText) downloadProgressText.textContent = text;
+    }
+
+    window.addEventListener('silgu:page', function (e) {
+        const name = e.detail && e.detail.name;
+
+        if (name === 'user') {
+            renderUserProfile();
+            return;
+        }
+
+        if (name === 'community') {
+            loadCommunity();
+            return;
+        }
+
+        if (name === 'settings') {
+            renderSettingsPage();
+            return;
+        }
+
+        if (name !== 'friends') return;
+
+        if (!currentUser) {
+            goPage('login');
+            return;
+        }
+
+        // 已经在刷新，或 15 秒内刚刷新过，就不再重复打一轮接口
+        if (socialRefreshing) return;
+        if (socialLoadedAt && Date.now() - socialLoadedAt < 15000) return;
+
+        refreshSocial();
+    });
+
+    // 通知中心：打开/关闭面板、全部已读、点击外部关闭
+    if (navNotice) {
+        navNotice.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleNoticePanel();
+        });
+    }
+    if (noticeReadAll) {
+        noticeReadAll.addEventListener('click', function () {
+            markAllNotificationsRead();
+        });
+    }
+    document.addEventListener('click', function (e) {
+        if (noticePanel && !noticePanel.hidden && navNoticeWrap && !navNoticeWrap.contains(e.target)) {
+            closeNoticePanel();
+        }
+    });
+
+    sb.auth.onAuthStateChange(function () {
+        // 回调里直接调用其它 supabase 方法可能死锁，延后到当前事件结束
+        setTimeout(function () {
+            sb.auth.getSession().then(function (result) {
+                syncUser(result.data.session ? result.data.session.user : null);
+            });
+        }, 0);
+    });
+
+    sb.auth.getSession().then(function (result) {
+        syncUser(result.data.session ? result.data.session.user : null);
+    });
+
+    if (downloadButton) {
+        downloadButton.addEventListener('click', async function () {
+            if (downloadMsg) downloadMsg.textContent = '';
+            showDownloadProgress(false);
+
+            const sessionResult = await sb.auth.getSession();
+            if (!sessionResult.data.session) {
+                if (downloadMsg) downloadMsg.textContent = '请先登录再下载';
+                goPage('login');
+                return;
+            }
+
+            downloadButton.disabled = true;
+
+            const result = await sb.storage
+                .from(cfg.bucket)
+                .createSignedUrl(cfg.fileName, 600);
+
+            downloadButton.disabled = false;
+
+            if (result.error) {
+                if (downloadMsg) {
+                    downloadMsg.textContent = '下载失败：' + translateError(result.error.message);
+                }
+                return;
+            }
+
+            // 桌面应用：交给 Electron 原生下载（可设目录、显示进度）；网页：直接跳转浏览器下载
+            if (isDesktop && window.desktopAPI && typeof window.desktopAPI.downloadFile === 'function') {
+                showDownloadProgress(true, 0, 0);
+                window.desktopAPI.downloadFile({ url: result.data.signedUrl, filename: cfg.fileName })
+                    .catch(function (err) {
+                        showDownloadProgress(false);
+                        if (downloadMsg) downloadMsg.textContent = '下载失败：' + (err && err.message ? err.message : '未知错误');
+                    });
+            } else {
+                window.location.href = result.data.signedUrl;
+            }
+        });
+    }
+
+    // 设置页交互：退出登录、更改下载目录
+    if (settingsLogout) {
+        settingsLogout.addEventListener('click', async function () {
+            await sb.auth.signOut();
+            goPage('home');
+        });
+    }
+    if (settingsChooseDir) {
+        settingsChooseDir.addEventListener('click', function () {
+            if (isDesktop && window.desktopAPI && typeof window.desktopAPI.chooseDownloadDir === 'function') {
+                window.desktopAPI.chooseDownloadDir().then(function (dir) {
+                    if (dir && settingsDownloadDir) settingsDownloadDir.textContent = dir;
+                }).catch(function () {
+                    // 用户取消选择就不做任何事
+                });
+            }
+        });
+    }
+
+    // 桌面应用：监听原生下载的进度与结果，更新页面进度条
+    if (isDesktop && window.desktopAPI) {
+        if (typeof window.desktopAPI.onDownloadProgress === 'function') {
+            window.desktopAPI.onDownloadProgress(function (data) {
+                showDownloadProgress(true, data ? data.received : 0, data ? data.total : 0);
+            });
+        }
+        if (typeof window.desktopAPI.onDownloadDone === 'function') {
+            window.desktopAPI.onDownloadDone(function (data) {
+                showDownloadProgress(false);
+                if (downloadMsg) {
+                    downloadMsg.textContent = '下载完成：' + (data && data.path ? data.path : '');
+                }
+            });
+        }
+        if (typeof window.desktopAPI.onDownloadError === 'function') {
+            window.desktopAPI.onDownloadError(function (err) {
+                showDownloadProgress(false);
+                if (downloadMsg) {
+                    downloadMsg.textContent = '下载失败：' + (err && err.message ? err.message : '未知错误');
+                }
+            });
+        }
+    }
+})();
