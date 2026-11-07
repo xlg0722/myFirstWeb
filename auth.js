@@ -40,6 +40,7 @@
     const profileForm = document.getElementById('profile-form');
     const deleteForm = document.getElementById('delete-form');
     const avatarButton = document.getElementById('avatar-pick');
+    const avatarEditBtn = document.getElementById('avatar-edit');
     const avatarInput = document.getElementById('avatar-file');
     const avatarImg = document.getElementById('profile-avatar-img');
     const avatarFallback = document.getElementById('profile-avatar-fallback');
@@ -135,6 +136,9 @@
     let unreadByFriend = {};     // friend_id -> 未读条数
     let realtimeChannel = null;
     let blockedUsers = [];       // 黑名单 [{ id, nickname, avatar_url }]
+    let aliasMap = {};           // 好友备注名 friend_id -> alias（本机保存）
+    let presenceCache = {};      // friend_id -> last_seen 时间戳
+    let presenceTimer = null;
     let profileCache = {};       // 用户资料内存缓存 id -> { at, data }
     let commentCache = {};       // 帖子评论缓存 post_id -> { at, rows, authors }
     const PROFILE_CACHE_TTL = 5 * 60 * 1000;
@@ -361,6 +365,7 @@
         const previousId = currentUser ? currentUser.id : null;
         currentUser = user || null;
         await loadProfile(currentUser);
+        loadAliases();
         renderAccount();
         renderProfilePage();
         renderCommunityState();
@@ -374,6 +379,9 @@
             if (currentId) {
                 startRealtime();
                 publishPublicKey();
+                startPresence();
+            } else {
+                stopPresence();
             }
             refreshSocial();
             communityLoadedAt = 0;
@@ -654,12 +662,18 @@
 
     if (avatarButton && avatarInput) {
         avatarButton.addEventListener('click', function () {
+            openOwnPublicProfile();
+        });
+
+    if (avatarEditBtn) {
+        avatarEditBtn.addEventListener('click', function () {
             if (!currentUser) {
                 goPage('login');
                 return;
             }
             avatarInput.click();
         });
+    }
 
         avatarInput.addEventListener('change', async function () {
             const file = avatarInput.files && avatarInput.files[0];
@@ -836,11 +850,25 @@
     // 点社区头像进入对方资料页
     function openUserProfile(person) {
         if (!person || !person.id) return;
-        if (currentUser && person.id === currentUser.id) {
-            goPage('profile');
+        viewedUser = normalizeProfile(person);
+        goPage('user');
+    }
+
+    // 打开自己的公开资料（别人点我们头像看到的场面）
+    function openOwnPublicProfile() {
+        if (!currentUser) {
+            goPage('login');
             return;
         }
-        viewedUser = normalizeProfile(person);
+        viewedUser = normalizeProfile({
+            id: currentUser.id,
+            nickname: nicknameOf(),
+            avatar_url: currentProfile ? currentProfile.avatar_url : null,
+            updated_at: currentProfile ? currentProfile.updated_at : null,
+            public_key: currentProfile ? currentProfile.public_key : null,
+            bio: currentProfile ? currentProfile.bio : '',
+            created_at: currentProfile ? currentProfile.created_at : null
+        });
         goPage('user');
     }
 
@@ -848,6 +876,14 @@
         if (!userAddBtn) return;
         if (!currentUser || !viewedUser) {
             userAddBtn.hidden = true;
+            if (userMessageBtn) userMessageBtn.hidden = true;
+            return;
+        }
+
+        // 看的是自己：不显示加好友/发消息
+        if (viewedUser.id === currentUser.id) {
+            userAddBtn.hidden = true;
+            if (userMessageBtn) userMessageBtn.hidden = true;
             return;
         }
 
@@ -880,8 +916,9 @@
             return;
         }
 
-        if (userNameEl) userNameEl.textContent = viewedUser.nickname;
-        if (userEmailEl) userEmailEl.textContent = '社区用户';
+        const alias = aliasMap[viewedUser.id];
+        if (userNameEl) userNameEl.textContent = alias || viewedUser.nickname;
+        if (userEmailEl) userEmailEl.textContent = alias ? '（备注名显示）' : '社区用户';
 
         if (userBioEl) {
             const bio = (viewedUser.bio || '').trim();
@@ -1323,20 +1360,37 @@
         if (friendsEmpty) friendsEmpty.hidden = friends.length > 0;
 
         friends.forEach(function (friend) {
-            const row = document.createElement('button');
-            row.type = 'button';
+            const row = document.createElement('div');
             row.className = 'friend-item friend-item--button';
             row.dataset.friendId = friend.id;
 
             const avatar = document.createElement('span');
-            avatar.className = 'friend-avatar';
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + friend.nickname + ' 的资料';
             fillAvatar(avatar, friend, friend.nickname);
+            if (isFriendOnline(friend.id)) avatar.classList.add('friend-avatar--online');
+            avatar.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openUserProfile(friend);
+            });
+
+            const info = document.createElement('span');
+            info.className = 'friend-info';
 
             const name = document.createElement('span');
             name.className = 'friend-name';
-            name.textContent = friend.nickname;
+            name.textContent = friendDisplayName(friend);
+            info.appendChild(name);
 
-            row.append(avatar, name);
+            const alias = aliasMap[friend.id];
+            if (alias && alias !== friend.nickname) {
+                const orig = document.createElement('span');
+                orig.className = 'friend-name--orig';
+                orig.textContent = friend.nickname;
+                info.appendChild(orig);
+            }
+
+            row.append(avatar, info);
 
             const unread = unreadByFriend[friend.id] || 0;
             if (unread > 0) {
@@ -1345,6 +1399,31 @@
                 badge.textContent = unread > 99 ? '99+' : String(unread);
                 row.appendChild(badge);
             }
+
+            // 行尾操作：备注、删除
+            const ops = document.createElement('span');
+            ops.className = 'friend-item__ops';
+            ops.addEventListener('click', function (e) { e.stopPropagation(); });
+
+            const aliasBtn = document.createElement('button');
+            aliasBtn.type = 'button';
+            aliasBtn.className = 'friend-action friend-action--tiny';
+            aliasBtn.textContent = '备注';
+            aliasBtn.addEventListener('click', function () { setFriendAlias(friend); });
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'friend-action friend-action--tiny friend-action--danger';
+            delBtn.textContent = '删除';
+            delBtn.addEventListener('click', function () { removeFriend(friend.id); });
+
+            ops.append(aliasBtn, delBtn);
+            row.appendChild(ops);
+
+            // 点头像进资料，点其余位置聊天
+            row.addEventListener('click', function () {
+                openChat(friend);
+            });
 
             friendsListBox.appendChild(row);
         });
@@ -1360,8 +1439,12 @@
             row.className = 'friend-item';
 
             const avatar = document.createElement('span');
-            avatar.className = 'friend-avatar';
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + req.nickname + ' 的资料';
             fillAvatar(avatar, req, req.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(req);
+            });
 
             const name = document.createElement('span');
             name.className = 'friend-name';
@@ -1400,8 +1483,12 @@
             row.className = 'friend-item';
 
             const avatar = document.createElement('span');
-            avatar.className = 'friend-avatar';
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + person.nickname + ' 的资料';
             fillAvatar(avatar, person, person.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(person);
+            });
 
             const name = document.createElement('span');
             name.className = 'friend-name';
@@ -1477,6 +1564,106 @@
         });
     }
 
+    // ===== 在线状态（presence 表心跳） =====
+
+    const PRESENCE_ONLINE_MS = 90 * 1000;   // 90 秒内有心跳算在线
+
+    function heartbeatPresence() {
+        if (!currentUser) return;
+        sb.from('presence')
+            .upsert({ user_id: currentUser.id, last_seen: new Date().toISOString() }, { onConflict: 'user_id' })
+            .then(function (r) {
+                if (r.error) console.debug('presence 心跳失败：', r.error.message);
+            });
+    }
+
+    function startPresence() {
+        stopPresence();
+        heartbeatPresence();
+        presenceTimer = setInterval(heartbeatPresence, 30 * 1000);
+        window.addEventListener('beforeunload', heartbeatPresence);
+    }
+
+    function stopPresence() {
+        if (presenceTimer) {
+            clearInterval(presenceTimer);
+            presenceTimer = null;
+        }
+        window.removeEventListener('beforeunload', heartbeatPresence);
+    }
+
+    function isFriendOnline(uid) {
+        const t = presenceCache[uid];
+        if (!t) return false;
+        return Date.now() - t < PRESENCE_ONLINE_MS;
+    }
+
+    // ===== 好友备注名（本机保存） =====
+
+    function aliasStorageKey() {
+        return currentUser ? 'silogu-alias-' + currentUser.id : 'silogu-alias';
+    }
+
+    function loadAliases() {
+        if (!currentUser) {
+            aliasMap = {};
+            return;
+        }
+        try {
+            aliasMap = JSON.parse(localStorage.getItem(aliasStorageKey()) || '{}') || {};
+        } catch (err) {
+            aliasMap = {};
+        }
+    }
+
+    function saveAlias(friendId, alias) {
+        if (alias) aliasMap[friendId] = alias;
+        else delete aliasMap[friendId];
+        try {
+            localStorage.setItem(aliasStorageKey(), JSON.stringify(aliasMap));
+        } catch (err) { /* 空间不足时静默失败 */ }
+        renderFriends();
+    }
+
+    function friendDisplayName(friend) {
+        return aliasMap[friend.id] || friend.nickname;
+    }
+
+    function setFriendAlias(friend) {
+        const old = aliasMap[friend.id] || '';
+        const next = window.prompt('为 ' + friend.nickname + ' 设置备注名（留空清除备注）', old);
+        if (next === null) return;
+        const alias = next.trim().slice(0, 20);
+        saveAlias(friend.id, alias);
+    }
+
+    // ===== 删除好友 =====
+
+    async function removeFriend(friendId) {
+        if (!currentUser) return;
+        const friend = friends.find(function (f) { return f.id === friendId; });
+        if (!friend) return;
+        if (!window.confirm('删除好友「' + friendDisplayName(friend) + '」？删除后聊天记录仍然保留。')) return;
+
+        // RPC 双向删除，避免残留单向关系
+        const result = await sb.rpc('remove_friend', { p_friend: friendId });
+
+        if (result.error) {
+            setSocialMsg(friendSearchMsg, '删除失败：' + socialError(result.error));
+            return;
+        }
+
+        friends = friends.filter(function (f) { return f.id !== friendId; });
+        delete chatKeyCache[friendId];
+        delete aliasMap[friendId];
+        try {
+            localStorage.setItem(aliasStorageKey(), JSON.stringify(aliasMap));
+        } catch (err) { /* 忽略 */ }
+        if (activeFriend && activeFriend.id === friendId) closeChat();
+        renderFriends();
+        renderBadge();
+    }
+
     async function loadFriends() {
         if (!currentUser) {
             friends = [];
@@ -1499,7 +1686,21 @@
             return;
         }
 
-        const prof = await fetchProfiles(ids);
+        // 好友资料与在线状态并行拉取
+        const results = await Promise.all([
+            fetchProfiles(ids),
+            sb.from('presence').select('user_id, last_seen').in('user_id', ids)
+        ]);
+
+        const prof = results[0];
+        const presence = results[1];
+        if (!presence.error) {
+            (presence.data || []).forEach(function (p) {
+                presenceCache[p.user_id] = new Date(p.last_seen).getTime();
+            });
+        } else {
+            console.debug('读取好友在线状态失败（可能还没建 presence 表）：', presence.error.message);
+        }
 
         const map = {};
         prof.forEach(function (p) { map[p.id] = p; });
@@ -1639,8 +1840,12 @@
             row.className = 'friend-item';
 
             const avatar = document.createElement('span');
-            avatar.className = 'friend-avatar';
+            avatar.className = 'friend-avatar friend-avatar--link';
+            avatar.title = '查看 ' + person.nickname + ' 的资料';
             fillAvatar(avatar, person, person.nickname);
+            avatar.addEventListener('click', function () {
+                openUserProfile(person);
+            });
 
             const name = document.createElement('span');
             name.className = 'friend-name';
@@ -1906,6 +2111,13 @@
         if (chatView) chatView.hidden = false;
         if (chatName) chatName.textContent = friend.nickname;
         fillAvatar(chatAvatar, friend, friend.nickname);
+
+        // 聊天界面的头像也可以点进对方资料页
+        if (chatAvatar) {
+            chatAvatar.classList.add('friend-avatar--link');
+            chatAvatar.dataset.uid = friend.id;
+            chatAvatar.title = '查看 ' + friend.nickname + ' 的资料';
+        }
         if (chatMessagesBox) chatMessagesBox.textContent = '';
         if (chatEmpty) chatEmpty.hidden = true;
         setSocialMsg(chatMsg, '');
@@ -1933,6 +2145,13 @@
         activeFriend = null;
         if (chatView) chatView.hidden = true;
         if (friendsView) friendsView.hidden = false;
+    }
+
+    if (chatAvatar) {
+        chatAvatar.addEventListener('click', function () {
+            if (!activeFriend) return;
+            openUserProfile(activeFriend);
+        });
     }
 
     async function addFriend(userId, button) {
@@ -2086,15 +2305,6 @@
 
             await refreshSocial();
             renderSearchResults();
-        });
-    }
-
-    if (friendsListBox) {
-        friendsListBox.addEventListener('click', function (e) {
-            const button = e.target.closest('[data-friend-id]');
-            if (!button) return;
-            const friend = friends.find(function (f) { return f.id === button.dataset.friendId; });
-            if (friend) openChat(friend);
         });
     }
 
