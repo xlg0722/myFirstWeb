@@ -1,4 +1,4 @@
-﻿/* ===== 基础重置 ===== */
+/* ===== 基础重置 ===== */
 *,
 *::before,
 *::after {
@@ -1207,6 +1207,35 @@ button.friend-item:focus-visible {
     min-height: 38px;
     margin-top: 10px;
     font-size: 13px;
+}
+
+/* 他人资料页的最近动态 */
+.user-posts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.user-post {
+    padding: 9px 12px;
+    border: 1px solid rgba(158, 184, 232, 0.18);
+    border-radius: 8px;
+    background: rgba(22, 34, 58, 0.35);
+}
+
+.user-post__text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: #dfe8ff;
+    overflow-wrap: anywhere;
+}
+
+.user-post__time {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: rgba(186, 204, 235, 0.45);
 }
 
 .community-sort {
