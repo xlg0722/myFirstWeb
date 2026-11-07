@@ -22,6 +22,17 @@
                 <a href="#download" class="nav-link" data-page="download">下载</a>
                 <a href="#friends" class="nav-link" id="nav-friends" data-page="friends" hidden>好友<span class="nav-badge" id="friends-badge" hidden>0</span></a>
                 <a href="#profile" class="nav-link" id="nav-profile" data-page="profile" hidden>个人资料</a>
+                <div class="nav-notice" id="nav-notice-wrap" hidden>
+                    <button class="nav-link nav-notice__btn" id="nav-notice" type="button">通知<span class="nav-badge" id="notice-badge" hidden>0</span></button>
+                    <div class="notice-panel" id="notice-panel" hidden>
+                        <div class="notice-panel__head">
+                            <span class="notice-panel__title">通知</span>
+                            <button class="notice-panel__read" id="notice-read-all" type="button">全部已读</button>
+                        </div>
+                        <div class="notice-panel__list" id="notice-list"></div>
+                        <p class="friends-empty notice-panel__empty" id="notice-empty">暂时没有通知</p>
+                    </div>
+                </div>
                 <div class="nav-account" id="nav-account"></div>
             </div>
         </div>

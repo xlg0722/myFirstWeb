@@ -96,6 +96,15 @@
     const userDetailBody = document.getElementById('user-detail-body');
     const userMsg = document.getElementById('user-msg');
 
+    // 通知中心
+    const navNotice = document.getElementById('nav-notice');
+    const navNoticeWrap = document.getElementById('nav-notice-wrap');
+    const noticeBadge = document.getElementById('notice-badge');
+    const noticePanel = document.getElementById('notice-panel');
+    const noticeList = document.getElementById('notice-list');
+    const noticeEmpty = document.getElementById('notice-empty');
+    const noticeReadAll = document.getElementById('notice-read-all');
+
     // 社区
     const communityForm = document.getElementById('community-form');
     const communityInput = document.getElementById('community-input');
@@ -172,6 +181,12 @@
     let communityHot = false;           // 热门榜
     let communitySearch = '';           // 内容关键词
     let communityAuthorFilter = null;   // { id, nickname }
+
+    // 通知中心
+    let notifications = [];         // [{ id, type, actor_id, post_id, content, read, created_at, actor }]
+    let noticeUnread = 0;           // 未读条数
+    let noticeLoadedAt = 0;         // 上次拉取通知的时间
+    let noticeReloadTimer = null;   // 合并实时推送触发的刷新
 
     function goPage(name) {
         if (window.SilguSite && typeof window.SilguSite.showPage === 'function') {
@@ -401,6 +416,7 @@
             refreshSocial();
             communityLoadedAt = 0;
             loadCommunity();
+            loadNotifications();
         }
 
         // 退出后仍停在需要登录的页面时回到登录页
@@ -1466,6 +1482,211 @@
         if (navFriends) navFriends.hidden = !currentUser;
     }
 
+    // ===== 通知中心 =====
+    function notificationText(n) {
+        const name = (n.actor && n.actor.nickname) ? n.actor.nickname : '有人';
+        if (n.type === 'friend_request') return name + ' 申请加你为好友';
+        if (n.type === 'like') return name + ' 赞了你的动态';
+        if (n.type === 'comment') {
+            const c = (n.content || '').trim();
+            return name + ' 评论了你的动态' + (c ? '：' + (c.length > 40 ? c.slice(0, 40) + '…' : c) : '');
+        }
+        return name + ' 给你发来一条通知';
+    }
+
+    function renderNoticeBadge() {
+        if (!noticeBadge) return;
+        noticeBadge.textContent = noticeUnread > 99 ? '99+' : String(noticeUnread);
+        noticeBadge.hidden = !currentUser || noticeUnread === 0;
+        if (navNoticeWrap) navNoticeWrap.hidden = !currentUser;
+    }
+
+    function renderNotifications() {
+        if (!noticeList) return;
+        noticeList.textContent = '';
+        if (noticeEmpty) noticeEmpty.hidden = notifications.length > 0;
+
+        notifications.forEach(function (n) {
+            const item = document.createElement('div');
+            item.className = 'notice-item' + (n.read ? '' : ' notice-item--unread');
+            item.dataset.noticeId = n.id;
+
+            if (!n.read) {
+                const dot = document.createElement('span');
+                dot.className = 'notice-item__dot';
+                item.appendChild(dot);
+            }
+
+            const body = document.createElement('div');
+            body.className = 'notice-item__body';
+
+            const text = document.createElement('div');
+            text.className = 'notice-item__text';
+            text.textContent = notificationText(n);
+
+            const time = document.createElement('div');
+            time.className = 'notice-item__time';
+            time.textContent = formatMessageTime(n.created_at);
+
+            body.append(text, time);
+            item.appendChild(body);
+
+            item.addEventListener('click', function () {
+                openNotice(n);
+            });
+
+            noticeList.appendChild(item);
+        });
+    }
+
+    function openNotice(n) {
+        if (!n.read && currentUser) {
+            n.read = true;
+            if (noticeUnread > 0) noticeUnread -= 1;
+            renderNoticeBadge();
+            renderNotifications();
+            sb.from('notifications').update({ read: true })
+                .eq('id', n.id)
+                .eq('user_id', currentUser.id);
+        }
+        closeNoticePanel();
+
+        if (n.type === 'friend_request') {
+            goPage('friends');
+        } else if ((n.type === 'like' || n.type === 'comment') && n.post_id) {
+            openCommunityPostById(n.post_id);
+        }
+    }
+
+    async function loadNotifications() {
+        if (!currentUser) {
+            notifications = [];
+            noticeUnread = 0;
+            noticeLoadedAt = 0;
+            renderNotifications();
+            renderNoticeBadge();
+            return;
+        }
+        // 10 秒内不重复拉取，实时推送靠订阅增量刷新
+        if (noticeLoadedAt && Date.now() - noticeLoadedAt < 10000) return;
+
+        const result = await sb.from('notifications')
+            .select('id, type, actor_id, post_id, content, read, created_at')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (result.error) {
+            console.warn('读取通知失败：', result.error);
+            return;
+        }
+
+        const rows = result.data || [];
+        const actorIds = [];
+        rows.forEach(function (r) {
+            if (r.actor_id && actorIds.indexOf(r.actor_id) < 0) actorIds.push(r.actor_id);
+        });
+        const people = actorIds.length ? await fetchProfiles(actorIds) : [];
+        const map = {};
+        people.forEach(function (p) { map[p.id] = p; });
+
+        notifications = rows.map(function (r) {
+            r.actor = map[r.actor_id]
+                ? normalizeProfile(map[r.actor_id])
+                : { id: r.actor_id, nickname: '玩家', avatar_url: null };
+            return r;
+        });
+        noticeUnread = notifications.filter(function (n) { return !n.read; }).length;
+        noticeLoadedAt = Date.now();
+
+        renderNotifications();
+        renderNoticeBadge();
+    }
+
+    function scheduleNotificationsReload() {
+        clearTimeout(noticeReloadTimer);
+        noticeReloadTimer = setTimeout(function () { loadNotifications(); }, 400);
+    }
+
+    async function markAllNotificationsRead() {
+        if (!currentUser) return;
+
+        const result = await sb.from('notifications')
+            .update({ read: true })
+            .eq('user_id', currentUser.id)
+            .eq('read', false);
+
+        if (result.error) {
+            console.warn('标记通知已读失败：', result.error);
+            return;
+        }
+
+        notifications.forEach(function (n) { n.read = true; });
+        noticeUnread = 0;
+        renderNotifications();
+        renderNoticeBadge();
+    }
+
+    // 给某个用户写入一条通知（不给自己写）
+    async function notifyUser(userId, type, extra) {
+        if (!currentUser || !userId || userId === currentUser.id) return;
+        const row = {
+            user_id: userId,
+            actor_id: currentUser.id,
+            type: type
+        };
+        if (extra && extra.post_id) row.post_id = extra.post_id;
+        if (extra && extra.content) row.content = extra.content;
+        const result = await sb.from('notifications').insert(row);
+        if (result.error) console.warn('写入通知失败：', result.error);
+    }
+
+    function toggleNoticePanel(show) {
+        if (!noticePanel) return;
+        const next = typeof show === 'boolean' ? show : noticePanel.hidden;
+        noticePanel.hidden = !next;
+        if (next && currentUser) loadNotifications();
+    }
+
+    function closeNoticePanel() {
+        if (noticePanel) noticePanel.hidden = true;
+    }
+
+    // 点开某条动态（通知跳转用）：先加载社区列表，找不到再单条拉取
+    async function openCommunityPostById(postId) {
+        goPage('community');
+        await loadCommunity(true);
+
+        const existing = communityPosts.find(function (p) { return p.id === postId; });
+        if (existing) {
+            openCommunityPost(existing);
+            return;
+        }
+
+        const result = await sb.from('community_posts')
+            .select('id, content, created_at, author_id, media, channel, likes_count')
+            .eq('id', postId)
+            .maybeSingle();
+
+        if (result.error || !result.data) return;
+
+        const row = result.data;
+        const authors = await fetchProfiles([row.author_id]);
+        const post = {
+            id: row.id,
+            author_id: row.author_id,
+            content: row.content,
+            created_at: row.created_at,
+            channel: row.channel || 'general',
+            media: Array.isArray(row.media) ? row.media : [],
+            likes_count: row.likes_count || 0,
+            liked: false,
+            bookmarked: false,
+            author: normalizeProfile(authors[0] || { id: row.author_id })
+        };
+        openCommunityPost(post);
+    }
+
     function renderFriends() {
         if (!friendsListBox) return;
         friendsListBox.textContent = '';
@@ -2077,6 +2298,14 @@
             }, function () {
                 scheduleRequestsReload();
             })
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'notifications',
+                filter: 'user_id=eq.' + me
+            }, function () {
+                scheduleNotificationsReload();
+            })
             .subscribe();
     }
 
@@ -2297,6 +2526,9 @@
         pendingOutgoing[userId] = true;
         setSocialMsg(friendSearchMsg, '好友申请已发送，等对方同意', 'success');
         renderSearchResults();
+
+        // 通知对方有新好友申请
+        notifyUser(userId, 'friend_request', {});
     }
 
     if (friendSearchForm) {
@@ -3164,6 +3396,11 @@
         button.classList.toggle('is-active', post.liked);
         setSocialMsg(communityMsg, '');
 
+        // 点赞动态时通知作者（取消点赞不通知）
+        if (post.liked) {
+            notifyUser(post.author_id, 'like', { post_id: post.id, content: post.content });
+        }
+
         refreshCommunityList();
     }
 
@@ -3337,6 +3574,9 @@
             setSocialMsg(communityMsg, communityError(result.error));
             return;
         }
+
+        // 评论动态时通知作者
+        notifyUser(post.author_id, 'comment', { post_id: post.id, content: text });
 
         input.value = '';
         setSocialMsg(communityMsg, '');
@@ -3933,6 +4173,24 @@
         if (socialLoadedAt && Date.now() - socialLoadedAt < 15000) return;
 
         refreshSocial();
+    });
+
+    // 通知中心：打开/关闭面板、全部已读、点击外部关闭
+    if (navNotice) {
+        navNotice.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleNoticePanel();
+        });
+    }
+    if (noticeReadAll) {
+        noticeReadAll.addEventListener('click', function () {
+            markAllNotificationsRead();
+        });
+    }
+    document.addEventListener('click', function (e) {
+        if (noticePanel && !noticePanel.hidden && navNoticeWrap && !navNoticeWrap.contains(e.target)) {
+            closeNoticePanel();
+        }
     });
 
     sb.auth.onAuthStateChange(function () {
