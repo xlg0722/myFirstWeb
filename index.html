@@ -273,8 +273,15 @@
 
             <div class="key-actions">
                 <button class="friend-action" id="user-add-friend" type="button">加好友</button>
+                <button class="friend-action" id="user-message" type="button" hidden>发消息</button>
             </div>
             <p class="auth-msg" id="user-msg" role="alert"></p>
+
+            <div class="friend-section">
+                <h3 class="section-title">最近动态</h3>
+                <div class="user-posts" id="user-posts"></div>
+                <p class="friends-empty" id="user-posts-empty" hidden>对方还没有发布动态</p>
+            </div>
         </div>
     </section>
 
